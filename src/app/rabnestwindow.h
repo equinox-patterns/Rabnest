@@ -30,12 +30,22 @@
 #include "core/importeddocument.h"
 
 #include "core/cutplan.h"
+#include "core/print/exporttemplate.h"
+#include "core/print/printplan.h"
 
 #include <QMainWindow>
+#include <QFutureWatcher>
+#include <QThreadPool>
+#include <QByteArray>
+#include <QHash>
+#include <QRectF>
 #include <QStringList>
 #include <QVector>
 
 class ImportOverlay;
+class PrintPanel;
+class QDockWidget;
+class QTimer;
 class RunsDock;
 class WorkspacePage;
 
@@ -63,6 +73,32 @@ private:
     void BackHome();
     void OpenOverlay(bool generateFromDocument);
 
+    /// The dock's printer icon: the print panel comes up, and the canvas shows the print run of
+    /// that output — the sheets, their paper, the decor and the cover page.
+    /// The Print tab generated: lay the run out, add its row, and show it.
+    void GeneratePrint(const QStringList &sizeIds, const QString &modelToken, int columns,
+                       double marginMm, double gapMm);
+
+    /// One print run, kept whole: what the canvas needs to draw it again when its row is selected.
+    struct PrintOutput
+    {
+        PrintPlan plan;
+        ExportTemplate decor;
+        QByteArray coverSvg;
+        QRectF coverPaper;
+        QRectF coverPage;
+        bool framed = false;
+    };
+
+    /// The print runs, by the row that presents them. A row is a plan or a print run, never both,
+    /// and the map is what says which.
+    QHash<int, PrintOutput> m_printOutputs;
+
+    /// Re-lays the print run with what the panel says, and redraws the canvas. Called on every
+    /// change, because a print setting IS a nesting setting: the column count makes the document's
+    /// width, and the margin and the gap go straight into the engine.
+    void RebuildPrint(int index);
+
     WorkspacePage *m_workspace = nullptr;
     RunsDock *m_runs = nullptr;
     ImportOverlay *m_overlay = nullptr;
@@ -75,6 +111,21 @@ private:
 
     /// Every plan on screen, in the dock's order — the dock says which row, this says which plan.
     QVector<CutPlan> m_plans;
+
+    /// The print panel, and the output it is working on.
+    QDockWidget *m_printDock = nullptr;
+    PrintPanel *m_printPanel = nullptr;
+    int m_printIndex = -1;
+
+    /// A press on a spin box is not one change but many: the print run is re-laid once the hand
+    /// stops moving, not once per tick.
+    QTimer *m_printTimer = nullptr;
+
+    /// The print run is minutes on a real pattern, so it is laid out off the interface — the same
+    /// worker pool the plan generation uses. A watcher is replaced on every change, and its result
+    /// is dropped when the panel has moved on.
+    QFutureWatcher<PrintPlan> *m_printWatch = nullptr;
+    QThreadPool *m_printPool = nullptr;
 };
 
 #endif  // RABNESTWINDOW_H

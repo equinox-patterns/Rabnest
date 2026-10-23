@@ -36,6 +36,8 @@
 #include <QWidget>
 
 class QCheckBox;
+class QTabWidget;
+class PrintPanel;
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
@@ -68,12 +70,27 @@ public:
     void ShowError(const QString &message);
     void ClearError();
 
+    /// Which generation the button will make: the cutting plan, the print, or — one day — the
+    /// plotter. The tabs are the user's choice, and the button above them obeys it.
+    enum class Tab
+    {
+        Cutting,
+        Print,
+        Plotter
+    };
+
+    auto ActiveTab() const -> Tab;
+
+    /// The print settings of this run, when the Print tab is the one being generated.
+    auto PrintSettings() const -> PrintPanel *;
+
 signals:
     void Continue();
     void Back();
 
 private:
     void UpdateContinue();
+    void UpdateGenerateText();
 
     QVector<QPair<QString, QCheckBox *>> m_boxes;  // id -> box, in list order
     QVBoxLayout *m_boxesLayout = nullptr;
@@ -85,6 +102,9 @@ private:
     QCheckBox *m_folded = nullptr;
     QCheckBox *m_oneWay = nullptr;
     QPushButton *m_continue = nullptr;
+
+    QTabWidget *m_tabs = nullptr;
+    PrintPanel *m_print = nullptr;
 };
 
 #endif  // CUTPLANPAGE_H

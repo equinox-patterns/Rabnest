@@ -31,7 +31,10 @@
 
 #include <clipper2/clipper.h>
 
-#include <QCoreApplication>
+#include <QApplication>
+#include <QImage>
+#include <QPainter>
+#include <QPainterPath>
 #include <QFile>
 #include <QElapsedTimer>
 #include <QPolygonF>
@@ -39,9 +42,114 @@
 #include <QSvgRenderer>
 #include <QTextStream>
 
+namespace
+{
+//---------------------------------------------------------------------------------------------------------------------
+/// Le plan tel que le canvas le dessine, rendu dans une image — pour REGARDER au lieu de deviner.
+///
+/// Mêmes formules que `WorkspacePage`, à la lettre : l'encre de la pose passée par `PlacedPoint`, puis
+/// le décor de la pièce par la même transformation. C'est un outil de diagnostic, il ne remplace rien.
+auto RenderPlan(const CutPlan &plan, const QString &path) -> bool
+{
+    const double scale = 0.25;  // 96 dpi vers une image regardable
+    const int width = static_cast<int>(plan.binWidthPx * scale);
+    const int height = static_cast<int>(plan.usedHeightPx * scale);
+    if (width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(scale, scale);
+
+    QPen border(QColor(0xD6, 0xD6, 0xD6));
+    border.setCosmetic(true);
+    painter.setPen(border);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRect(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx));
+
+    QPen foldPen(QColor(0x9A, 0x9A, 0x9A), 0.0, Qt::DashLine);
+    foldPen.setCosmetic(true);
+    for (const FoldZone &zone : plan.zones)
+    {
+        painter.setPen(foldPen);
+        painter.drawRect(zone.rect);
+        const double x = zone.foldOnTheLeft ? zone.rect.left() : zone.rect.right();
+        painter.setPen(QPen(QColor(0x7A, 0x7A, 0x7A), 0.0, Qt::DashDotLine));
+        painter.drawLine(QLineF(x, zone.rect.top(), x, zone.rect.bottom()));
+    }
+
+    QPen piecePen(QColor(0x2B, 0x2B, 0x2B));
+    piecePen.setCosmetic(true);
+
+    for (int index = 0; index < plan.poses.size() && index < static_cast<int>(plan.placements.size());
+         ++index)
+    {
+        const CutPiece &pose = plan.poses.at(index);
+        const Placement &placement = plan.placements.at(static_cast<std::size_t>(index));
+        const QPointF origin = plan.origins.at(index);
+
+        QPainterPath shape;
+        for (const QPolygonF &polygon : pose.ink)
+        {
+            QPolygonF placed;
+            placed.reserve(polygon.size());
+            for (const QPointF &point : polygon)
+            {
+                placed.append(PlacedPoint(point, placement, origin));
+            }
+            shape.addPolygon(placed);
+        }
+
+        painter.setPen(piecePen);
+        painter.setBrush(QColor(0xF7, 0xF5, 0xF2));
+        painter.drawPath(shape);
+
+        const PieceDecor decor = plan.decor.value(pose.name);
+        if (decor.content.isEmpty())
+        {
+            continue;
+        }
+
+        const QRectF box = decor.box;
+        QString svg = QStringLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\" "
+                                     "xmlns:ostara=\"urn:ostara\" width=\"%1\" height=\"%2\" "
+                                     "viewBox=\"%3 %4 %1 %2\">")
+                          .arg(QString::number(box.width(), 'f', 3),
+                               QString::number(box.height(), 'f', 3),
+                               QString::number(box.left(), 'f', 3),
+                               QString::number(box.top(), 'f', 3));
+        svg += decor.content;
+        svg += QStringLiteral("</svg>");
+
+        QSvgRenderer renderer(svg.toUtf8());
+        if (!renderer.isValid())
+        {
+            continue;
+        }
+
+        painter.save();
+        QTransform transform;
+        transform.translate(placement.x, placement.y);
+        transform.rotate(placement.rotation);
+        transform.translate(box.left() - origin.x(), box.top() - origin.y());
+        painter.setTransform(transform, /*combine=*/true);
+        renderer.render(&painter, QRectF(box.left(), box.top(), box.width(), box.height()));
+        painter.restore();
+    }
+
+    painter.end();
+    return image.save(path);
+}
+}  // namespace
+
 int main(int argc, char *argv[])
 {
-    QCoreApplication app(argc, argv);
+    QApplication app(argc, argv);
     const QStringList arguments = app.arguments();
 
     if (arguments.size() < 2)
@@ -128,7 +236,8 @@ int main(int argc, char *argv[])
 
         QVector<CutSize> loaded;
         QString error;
-        if (!Pattern::Load(document, {sizeId}, pieces, request.foldedFabric, loaded, &error))
+        if (!Pattern::Load(document, {sizeId}, pieces,
+                          request.foldedFabric ? Cloth::Folded : Cloth::Flat, loaded, &error))
         {
             out << "  " << sizeId << " : " << error << "\n";
             continue;
@@ -165,6 +274,18 @@ int main(int argc, char *argv[])
             {
                 out << "  " << size.label << " : ECHEC " << plan.error << "\n";
                 continue;
+            }
+
+            // Un PNG par taille, pour regarder le plan au lieu de le décrire.
+            for (const QString &argument : arguments)
+            {
+                if (!argument.startsWith(QStringLiteral("--png=")))
+                {
+                    continue;
+                }
+                const QString base = argument.mid(6);
+                const QString file = base + QStringLiteral("-%1.png").arg(size.label);
+                out << "      image " << file << (RenderPlan(plan, file) ? "" : " (ECHEC)") << "\n";
             }
 
             // The two things a plan cannot get wrong, measured on what the engine returned: no two

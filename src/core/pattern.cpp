@@ -88,6 +88,106 @@ auto Outline(const QString &text) -> QVector<QPointF>
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+/// The contour as DRAWN, one polygon per subpath — `M x,y` … `L x,y` … repeated.
+///
+/// Ostara writes it with the same serializer as the drawing's own `<path d>` (`M`/`L`, three
+/// decimals, no `Z`), and splits the subpaths with `M`. Nothing here interprets a curve: a piece's
+/// contour is polygons all the way down — the sewing line, the seam allowance, and the notches
+/// spliced into one of them. A `C` would be read as more of the same polyline, which is what a
+/// cutting plan's own outline reader has always done.
+auto InkPaths(const QString &text) -> QVector<QPolygonF>
+{
+    QVector<QPolygonF> paths;
+
+    for (const QString &chunk : text.split(QLatin1Char('M'), Qt::SkipEmptyParts))
+    {
+        const QVector<double> values = Numbers(chunk);
+        if (values.size() < 6)
+        {
+            continue;
+        }
+
+        QPolygonF polygon;
+        polygon.reserve(values.size() / 2);
+        for (int index = 0; index + 1 < values.size(); index += 2)
+        {
+            polygon.append(QPointF(values.at(index), values.at(index + 1)));
+        }
+        paths.append(polygon);
+    }
+
+    return paths;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto Shifted(const QVector<QPointF> &points, const QPointF &delta) -> QVector<QPointF>
+{
+    QVector<QPointF> out;
+    out.reserve(points.size());
+    for (const QPointF &point : points)
+    {
+        out.append(point + delta);
+    }
+    return out;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto Shifted(const QVector<QPolygonF> &paths, const QPointF &delta) -> QVector<QPolygonF>
+{
+    QVector<QPolygonF> out;
+    out.reserve(paths.size());
+    for (const QPolygonF &path : paths)
+    {
+        out.append(path.translated(delta));
+    }
+    return out;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto Mirrored(const QVector<QPolygonF> &paths, double axisX) -> QVector<QPolygonF>
+{
+    QVector<QPolygonF> out;
+    out.reserve(paths.size());
+    for (const QPolygonF &path : paths)
+    {
+        QPolygonF one;
+        one.reserve(path.size());
+        for (const QPointF &point : path)
+        {
+            one.append(QPointF(2.0 * axisX - point.x(), point.y()));
+        }
+        out.append(one);
+    }
+    return out;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+/// The name the DRAWING gives a piece — Ostara's own `OSvg::SanitizeSvgId`, and not a rule of ours.
+///
+/// ⚠️ **« Replace a space with an underscore » is not it, and the difference loses pieces.** The
+/// drawing keeps letters, digits, `_` and `-` and turns EVERY other character into an underscore, so
+/// « Poignet x2 + entoilage » is drawn `Poignet_x2___entoilage` — three underscores, one for the
+/// space, one for the `+`, one for the space after it. Compared on the space alone, that piece
+/// matched nothing and was dropped from the plan without a word.
+auto Slug(const QString &name) -> QString
+{
+    QString slug;
+    slug.reserve(name.size());
+    for (const QChar character : name)
+    {
+        slug += (character.isLetterOrNumber() || character == QLatin1Char('_')
+                 || character == QLatin1Char('-'))
+                    ? character
+                    : QLatin1Char('_');
+    }
+    if (!slug.isEmpty() && slug.front().isDigit())
+    {
+        slug.prepend(QLatin1Char('_'));
+    }
+    return slug;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 auto CentreX(const QVector<QPointF> &points) -> double
 {
     if (points.isEmpty())
@@ -369,7 +469,7 @@ auto ReadDecor(const QDomElement &decorElement, PieceDecor *out) -> bool
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
-                   const QStringList &pieceNames, bool foldedFabric, QVector<CutSize> &out,
+                   const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
                    QString *error) -> bool
 {
     out.clear();
@@ -397,17 +497,21 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         return false;
     }
 
-    // **Version 2 is the one that carries the decor per size.** A version-1 payload holds the same
-    // pieces with no decor at all, and reading it would be worse than refusing it: the plan would lay
+    // **Version 3 is the one that carries the drawn contour and the alignment.** Version 2 holds
+    // the same pieces with their decor, but a reader can only lay their sizes on top of each other
+    // by guessing an offset it never received — which gives a footprint larger than the piece, not
+    // a slightly wrong one — and can only draw them without their notches. Version 1 has no decor
+    // at all. Reading the nearest older thing would be worse than refusing it: the plan would lay
     // ten pieces and not one grain line, silently. A reader that cannot find what it was asked for
-    // says so — the same rule the missing outline follows below.
+    // says so.
     const QString payloadVersion = pieces.attribute(QStringLiteral("version"));
-    if (payloadVersion != QLatin1String("2"))
+    if (payloadVersion != QLatin1String("3"))
     {
         if (error != nullptr)
         {
             *error = QObject::tr("This PDF was exported by an older Ostara: it does not carry the "
-                                 "decor of its pieces for every size. Export it again.");
+                                 "drawn contour of its pieces, nor the offset that lines their sizes "
+                                 "up. Export it again.");
         }
         return false;
     }
@@ -443,17 +547,39 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
 
     // One plan per size, as Ostara does it: a cutting plan is laid for one size, and asking for
     // three gives three plans, not one plan over three sizes.
+    // The reference size — the first the payload writes, which is the smallest of the range, and
+    // the only one whose decor the drawing resolved. Read here, before anything is filtered out: a
+    // piece the run does not keep still names its layer.
+    QString referenceLabel;
+    for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
+         element = element.nextSiblingElement(QStringLiteral("piece")))
+    {
+        const QString pieceSize = element.attribute(QStringLiteral("size"));
+        if (!pieceSize.isEmpty())
+        {
+            referenceLabel = pieceSize;
+            break;
+        }
+    }
+
     for (const QString &sizeId : sizeIds)
     {
         const QString label = labelById.value(sizeId, sizeId);
 
         CutSize size;
         size.label = label;
+        size.reference = !referenceLabel.isEmpty()
+                         && (referenceLabel == label
+                             || label.endsWith(QLatin1String(" ") + referenceLabel));
 
         // A piece the payload NAMES but does not DRAW is a file written before the outline was
         // carried. Counted, because « no cutting quantity » would be the wrong thing to say about a
         // pattern whose quantities are all there.
         int withoutOutline = 0;
+        // The two figures version 3 added, counted for the same reason: a payload that names a piece
+        // without them is a payload from another vintage, and no amount of laying out can repair it.
+        int withoutAlignment = 0;
+        int withoutInk = 0;
 
         for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
              !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
@@ -477,7 +603,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // with its real name: « Ourlet dos » is drawn as `Ourlet_dos`. Rabnest lists the pieces
             // from the drawing, so a comparison on the name alone drops every piece whose name has a
             // space in it, silently, and a pattern of nine pieces is planned with six.
-            const QString slug = QString(name).replace(QLatin1Char(' '), QLatin1Char('_'));
+            const QString slug = Slug(name);
             if (!kept.contains(name) && !kept.contains(slug))
             {
                 continue;
@@ -490,24 +616,73 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             const QString stored = element.attribute(QStringLiteral("outline"));
             const QString alternative = element.attribute(QStringLiteral("outlineAlt"));
 
-            // Which of the two forms is laid is the CLOTH's decision, taken here once: folded cloth
-            // lays the half, flat cloth the whole piece. A piece with no fold has one form only, and
-            // `alternative` is then empty.
-            QVector<QPointF> contour;
-            if (!onFold)
+            // ── L'écart d'alignement ───────────────────────────────────────────────────────────
+            //
+            // The sizes of one piece do not superimpose in the pattern — one grows from its centre,
+            // the other is pinned at its fold — so Ostara computes an offset per size and writes it
+            // here, in pixels, in the frame of the contour. The contours below are written SHIFTED
+            // BY NOTHING; the offset is applied to every coordinate the piece carries, once, right
+            // here. Both consumers want the same answer: the engine unions the sizes into one
+            // footprint, and that union means nothing unless they lie on top of each other.
+            //
+            // ⚠️ **All of them, and not the contour alone.** The fold axis and the grain line are
+            // in the same frame, and a piece placed by its contour but drawn with an unshifted
+            // grain line would carry its line beside it.
+            const QVector<double> shift = Numbers(element.attribute(QStringLiteral("alignDelta")));
+            if (shift.size() < 2)
             {
-                contour = Outline(stored);
+                ++withoutAlignment;
+                continue;
             }
-            else
-            {
-                const QString chosen = (foldedFabric == storedFolded) ? stored : alternative;
-                contour = Outline(chosen);
-            }
+            const QPointF alignDelta(shift.at(0), shift.at(1));
+
+            // Which of the two forms is laid is the OUTPUT's decision, taken here once. A print lays
+            // the form the payload carries, whichever it is — it is reproducing the document, not
+            // re-forming it — and only a cutting plan asks the cloth, which is the one thing that
+            // can make a whole piece go on folded fabric. A piece with no fold has one form only,
+            // and `alternative` is then empty.
+            const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
+                                            || (cloth == Cloth::Folded) == storedFolded;
+            QVector<QPointF> contour = Outline(storedIsTheOneLaid ? stored : alternative);
 
             if (contour.size() < 3)
             {
                 ++withoutOutline;
                 continue;
+            }
+
+            contour = Shifted(contour, alignDelta);
+
+            // The contour as the canvas draws it — notches included, and the sewing line when the
+            // piece shows one. Required for the form the payload CARRIES: a piece drawn without its
+            // notches looks finished and cannot be mounted, and a reader that silently fell back on
+            // the plain outline would be hiding that. The attribute may be EMPTY, and that is not
+            // the same thing: a piece whose main path is hidden and that has no seam allowance draws
+            // nothing, and the payload says so by carrying nothing.
+            //
+            // ⚠️ **One ink per form, and the form LAID is the one DRAWN.** A folded piece is stored
+            // as its half and cut whole on flat cloth: the payload carries both inks, the same choice
+            // that picked the contour picks its ink.
+            QVector<QPolygonF> ink;
+            const QString inkAttribute = storedIsTheOneLaid ? QStringLiteral("outlineInk")
+                                                            : QStringLiteral("outlineInkAlt");
+            if (!element.hasAttribute(inkAttribute))
+            {
+                if (storedIsTheOneLaid)
+                {
+                    ++withoutInk;
+                    continue;
+                }
+
+                // La forme RÉFORMÉE d'un payload écrit avant que son encre ne soit portée : le
+                // contour est là, les crans non. On dessine le contour — une pièce sans ses crans
+                // reste une pièce juste — plutôt que de refuser le plan entier pour un détail que
+                // la prochaine génération apportera.
+                ink = {QPolygonF(contour)};
+            }
+            else
+            {
+                ink = Shifted(InkPaths(element.attribute(inkAttribute)), alignDelta);
             }
 
             const int cutFabric = element.attribute(QStringLiteral("cutFabric")).toInt();
@@ -521,7 +696,6 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             const QVector<double> axis = Numbers(element.attribute(QStringLiteral("foldAxis")));
             const QVector<double> grainLine =
                 Numbers(element.attribute(QStringLiteral("grainLine")));
-
             // Its own children, or its group's — the payload states which by carrying them (or not).
             // Filed under THIS size, because the payload seats the drawing on each size separately.
             {
@@ -533,33 +707,62 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 }
                 if (!one.content.isEmpty())
                 {
+                    // The decor is written in the contour's frame, so it takes the alignment too —
+                    // by a TRANSLATION wrapped around it, never by re-writing its numbers: its ink
+                    // comes from Ostara's own serializer, and a second reader that moved every
+                    // coordinate would be a second serializer allowed to disagree with the first.
+                    // The box moves with it, and the two moves do not add up twice: the box is the
+                    // SVG's viewBox AND the offset the item is placed at, so shifting one alone
+                    // would cancel itself out.
+                    if (!alignDelta.isNull())
+                    {
+                        one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
+                                          .arg(QString::number(alignDelta.x(), 'f', 3),
+                                               QString::number(alignDelta.y(), 'f', 3))
+                                      + one.content + QStringLiteral("</g>");
+                        one.box.translate(alignDelta);
+                    }
+
                     // Both spellings of the name, for the reason the piece lookup below accepts both:
                     // the drawing writes `Ourlet_dos`, the payload names « Ourlet dos », and a plan
                     // looks its decor up by the name it plans with.
                     size.decor.insert(name, one);
-                    size.decor.insert(QString(name).replace(QLatin1Char(' '), QLatin1Char('_')), one);
+                    size.decor.insert(Slug(name), one);
                 }
             }
 
             CutPiece pose;
             pose.name = name;
             pose.outline = contour;
+            pose.ink = ink;
             pose.onFold = onFold;
+            // The payload's own key, which is the group's for a member and the piece's name
+            // otherwise. Fallen back on the name and the group id, so a payload written before the
+            // key was carried still names something a placement can be found under.
+            pose.groupKey = element.attribute(QStringLiteral("group"));
+            pose.footprint = element.attribute(QStringLiteral("key"));
+            if (pose.footprint.isEmpty())
+            {
+                pose.footprint = pose.groupKey.isEmpty()
+                                     ? name
+                                     : QStringLiteral("g%1").arg(pose.groupKey);
+            }
             pose.grainKnown = element.hasAttribute(QStringLiteral("grain"));
             pose.grain = element.attribute(QStringLiteral("grain")).toDouble();
             pose.arrows = element.attribute(QStringLiteral("arrows")).toInt();
             pose.cutFabric = cutFabric;
             pose.cutLining = element.attribute(QStringLiteral("cutLining")).toInt();
+            // Both in the contour's frame, so both take the alignment with it.
             if (axis.size() >= 4)
             {
-                pose.foldA = QPointF(axis.at(0), axis.at(1));
-                pose.foldB = QPointF(axis.at(2), axis.at(3));
+                pose.foldA = QPointF(axis.at(0), axis.at(1)) + alignDelta;
+                pose.foldB = QPointF(axis.at(2), axis.at(3)) + alignDelta;
             }
             if (grainLine.size() >= 4)
             {
                 pose.hasGrainLine = true;
-                pose.grainA = QPointF(grainLine.at(0), grainLine.at(1));
-                pose.grainB = QPointF(grainLine.at(2), grainLine.at(3));
+                pose.grainA = QPointF(grainLine.at(0), grainLine.at(1)) + alignDelta;
+                pose.grainB = QPointF(grainLine.at(2), grainLine.at(3)) + alignDelta;
             }
 
             // ── La quantité ─────────────────────────────────────────────────────────────────────
@@ -568,8 +771,13 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // piece cut four times is laid twice. Rounded UP — one stays one, three becomes two,
             // five becomes three. A piece cut ON the fold is not divided: one pose on the fold gives
             // ONE whole piece, the fold completing it rather than doubling it.
-            int quantity = cutFabric;
-            if (foldedFabric && !onFold)
+            //
+            // ⚠️ **A print lays every piece ONCE, and the quantity is none of its business.** The
+            // payload writes one record per piece per size — the drawing shows that piece once —
+            // and « cut 4 » is a figure the cartouche carries, not a request to print it four
+            // times. Only a cutting plan expands it, because only a plan produces pieces to cut.
+            int quantity = cloth == Cloth::AsDrawn ? 1 : cutFabric;
+            if (cloth == Cloth::Folded && !onFold)
             {
                 quantity = (cutFabric + 1) / 2;
             }
@@ -593,13 +801,14 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 // drawn for one edge of the fold. The mirror opens the other: one of the two is
                 // laid, the other exists so that either edge can receive it. Both are emitted here
                 // and the plan keeps the one whose edge matches the fold it is given.
-                if (foldedFabric && onFold)
+                if (cloth == Cloth::Folded && onFold)
                 {
                     const double axisX = CentreX(one.outline);
 
                     CutPiece twin = one;
                     twin.key = one.key + QStringLiteral("-m");
                     twin.outline = Mirrored(one.outline, axisX);
+                    twin.ink = Mirrored(one.ink, axisX);
                     twin.foldA = QPointF(2.0 * axisX - one.foldA.x(), one.foldA.y());
                     twin.foldB = QPointF(2.0 * axisX - one.foldB.x(), one.foldB.y());
                     twin.grain = MirroredGrain(one.grain);
@@ -625,6 +834,20 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             {
                 *error = QObject::tr("This PDF was exported by an older Ostara: it does not carry "
                                      "the outline of its pieces. Export it again.");
+            }
+            return false;
+        }
+
+        // Same rule, for the two figures version 3 added. Laying the pieces without them would give
+        // a plan drawn without its notches, over sizes that never line up — a plan that looks
+        // finished from the first sheet to the last.
+        if (withoutAlignment > 0 || withoutInk > 0)
+        {
+            if (error != nullptr)
+            {
+                *error = QObject::tr("This PDF was exported by an older Ostara: it does not carry "
+                                     "the drawn contour of its pieces, nor the offset that lines "
+                                     "their sizes up. Export it again.");
             }
             return false;
         }

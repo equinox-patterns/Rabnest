@@ -53,6 +53,12 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/rabnestwindow.h
     src/app/workspacepage.cpp
     src/app/workspacepage.h
+    src/app/print/exportmarkpainter.cpp
+    src/app/print/exportmarkpainter.h
+    src/app/print/printitems.cpp
+    src/app/print/printitems.h
+    src/app/print/printpanel.cpp
+    src/app/print/printpanel.h
     src/core/cutplan.cpp
     src/core/cutplan.h
     src/core/cutplanrequest.h
@@ -62,6 +68,27 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/core/layerreducer.h
     src/core/pattern.cpp
     src/core/pattern.h
+    src/core/print/dashpen.h
+    src/core/print/exportartboards.cpp
+    src/core/print/exportartboards.h
+    src/core/print/exportcoverpage.cpp
+    src/core/print/exportcoverpage.h
+    src/core/print/exportframesettings.h
+    src/core/print/exportmarksettings.cpp
+    src/core/print/exportmarksettings.h
+    src/core/print/exportpaginationsettings.cpp
+    src/core/print/exportpaginationsettings.h
+    src/core/print/exportprintmodel.cpp
+    src/core/print/exportprintmodel.h
+    src/core/print/exportsheets.cpp
+    src/core/print/exportsheets.h
+    src/core/print/exporttemplate.cpp
+    src/core/print/exporttemplate.h
+    src/core/print/printmetrics.h
+    src/core/print/printplan.cpp
+    src/core/print/printplan.h
+    src/core/print/printrecipe.cpp
+    src/core/print/printrecipe.h
     src/ui/NestingDialog.cpp
     src/ui/NestingDialog.h
     share/rabnest.qrc
@@ -109,3 +136,25 @@ add_executable(rabnest_plan
 )
 target_include_directories(rabnest_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(rabnest_plan PRIVATE Trame Qt6::Widgets Qt6::Svg ZLIB::ZLIB)
+
+# The print run's figures without a click — it writes nothing, it prints a tiling.
+add_executable(rabnest_print
+    src/tools/print.cpp
+    src/app/print/exportmarkpainter.cpp
+    src/app/print/printpanel.cpp
+    src/core/importeddocument.cpp
+    src/core/layerreducer.cpp
+    src/core/pattern.cpp
+    src/core/print/exportartboards.cpp
+    src/core/print/exportcoverpage.cpp
+    src/core/print/exportmarksettings.cpp
+    src/core/print/exportpaginationsettings.cpp
+    src/core/print/exportprintmodel.cpp
+    src/core/print/exportsheets.cpp
+    src/core/print/exporttemplate.cpp
+    src/core/print/printplan.cpp
+    src/core/print/printrecipe.cpp
+    share/rabnest.qrc
+)
+target_include_directories(rabnest_print PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(rabnest_print PRIVATE Trame Qt6::Widgets Qt6::Svg ZLIB::ZLIB)

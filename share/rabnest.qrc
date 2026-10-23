@@ -213,4 +213,11 @@
     <qresource prefix="/fonts/inter">
         <file alias="Inter-VariableFont.ttf">fonts/inter/Inter-VariableFont.ttf</file>
     </qresource>
+    <qresource prefix="/export">
+        <file alias="circle.svg">icons/export/circle.svg</file>
+        <file alias="icon_scissors_horizontal.svg">icons/export/icon_scissors_horizontal.svg</file>
+        <file alias="icon_scissors_vertical.svg">icons/export/icon_scissors_vertical.svg</file>
+        <file alias="octogon.svg">icons/export/octogon.svg</file>
+        <file alias="square.svg">icons/export/square.svg</file>
+    </qresource>
 </RCC>

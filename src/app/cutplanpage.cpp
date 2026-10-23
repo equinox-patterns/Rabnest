@@ -31,7 +31,10 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QVBoxLayout>
+
+#include "app/print/printpanel.h"
 
 namespace
 {
@@ -55,20 +58,41 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     layout->setContentsMargins(32, 28, 32, 24);
     layout->setSpacing(8);
 
-    auto *title = new QLabel(tr("The cutting plan"), this);
+    // ── Ce que la génération fait, dit avant les onglets ────────────────────────────────────────
+    auto *again = new QLabel(
+        tr("Each generation makes one output. Once it is made, you can come back and make more."),
+        this);
+    again->setObjectName(QStringLiteral("panelHint"));
+    again->setWordWrap(true);
+    layout->addWidget(again);
+
+    // ── Les trois onglets, comme dans Ostara ────────────────────────────────────────────────────
+    //
+    // One dialog, three ways of laying the same pattern out. The cutting plan is BUILT into its
+    // tab, never moved into it: a page assembled first and reshuffled afterwards loses whatever is
+    // not a widget — a QFormLayout and its rows, here — and the fields it held end up ownerless on
+    // the page. That is exactly what happened, and it is why this reads as one pass.
+    auto *tabs = new QTabWidget(this);
+
+    auto *cutting = new QWidget(tabs);
+    auto *cuttingLayout = new QVBoxLayout(cutting);
+    cuttingLayout->setContentsMargins(16, 12, 16, 12);
+    cuttingLayout->setSpacing(8);
+
+    auto *title = new QLabel(tr("The cutting plan"), cutting);
     title->setObjectName(QStringLiteral("stepTitle"));
-    layout->addWidget(title);
+    cuttingLayout->addWidget(title);
 
     auto *subtitle = new QLabel(
         tr("A cut plan is laid for one size. Tick the sizes you want: each one gets its own plan."),
-        this);
+        cutting);
     subtitle->setObjectName(QStringLiteral("stepSubtitle"));
     subtitle->setWordWrap(true);
-    layout->addWidget(subtitle);
-    layout->addSpacing(16);
+    cuttingLayout->addWidget(subtitle);
+    cuttingLayout->addSpacing(16);
 
     // ── Les tailles ─────────────────────────────────────────────────────────────────────────────
-    m_boxesBlock = new QWidget(this);
+    m_boxesBlock = new QWidget(cutting);
     auto *boxesOuter = new QVBoxLayout(m_boxesBlock);
     boxesOuter->setContentsMargins(0, 0, 0, 0);
     boxesOuter->setSpacing(4);
@@ -76,51 +100,94 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     m_boxesLayout->setContentsMargins(0, 0, 0, 0);
     m_boxesLayout->setSpacing(4);
     boxesOuter->addLayout(m_boxesLayout);
-    layout->addWidget(m_boxesBlock);
-    layout->addSpacing(12);
+    cuttingLayout->addWidget(m_boxesBlock);
+    cuttingLayout->addSpacing(12);
 
     auto *form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     form->setHorizontalSpacing(16);
     form->setVerticalSpacing(12);
 
-    m_width = CmSpin(140.0, 400.0, this);
+    m_width = CmSpin(140.0, 400.0, cutting);
     form->addRow(tr("Fabric width"), m_width);
 
-    m_margin = CmSpin(0.5, 20.0, this);
+    m_margin = CmSpin(0.5, 20.0, cutting);
     form->addRow(tr("Margin from the edges"), m_margin);
 
-    m_gap = CmSpin(0.5, 20.0, this);
+    m_gap = CmSpin(0.5, 20.0, cutting);
     form->addRow(tr("Gap between two pieces"), m_gap);
 
-    layout->addLayout(form);
-    layout->addSpacing(12);
+    cuttingLayout->addLayout(form);
+    cuttingLayout->addSpacing(12);
 
-    m_folded = new QCheckBox(tr("The fabric is folded"), this);
+    m_folded = new QCheckBox(tr("The fabric is folded"), cutting);
     m_folded->setCursor(Qt::PointingHandCursor);
-    layout->addWidget(m_folded);
+    cuttingLayout->addWidget(m_folded);
 
     auto *foldedHint = new QLabel(
         tr("Folded: a piece cut on the fold is laid on the fold. Unfolded: that piece is shown "
            "whole, so unfolded. The width you enter is always the unfolded fabric."),
-        this);
+        cutting);
     foldedHint->setObjectName(QStringLiteral("outputDescription"));
     foldedHint->setWordWrap(true);
     foldedHint->setContentsMargins(24, 0, 0, 0);
-    layout->addWidget(foldedHint);
+    cuttingLayout->addWidget(foldedHint);
 
-    m_oneWay = new QCheckBox(tr("All pieces the same way round"), this);
+    m_oneWay = new QCheckBox(tr("All pieces the same way round"), cutting);
     m_oneWay->setCursor(Qt::PointingHandCursor);
-    layout->addWidget(m_oneWay);
+    cuttingLayout->addWidget(m_oneWay);
 
     auto *oneWayHint = new QLabel(
         tr("The grain line is always respected, ticked or not. Unticked, pieces may be laid head to "
            "tail; ticked, they all lie the same way round."),
-        this);
+        cutting);
     oneWayHint->setObjectName(QStringLiteral("outputDescription"));
     oneWayHint->setWordWrap(true);
     oneWayHint->setContentsMargins(24, 0, 0, 0);
-    layout->addWidget(oneWayHint);
+    cuttingLayout->addWidget(oneWayHint);
+
+    // What does not fill the tab stays at its top, where it reads.
+    cuttingLayout->addStretch(1);
+
+    tabs->addTab(cutting, tr("Cutting plan"));
+
+    // ── Impression ─────────────────────────────────────────────────────────────────────────────
+    auto *printPage = new QWidget(tabs);
+    auto *printLayout = new QVBoxLayout(printPage);
+    printLayout->setContentsMargins(16, 12, 16, 12);
+    printLayout->setSpacing(8);
+
+    auto *printTitle = new QLabel(tr("The print"), printPage);
+    printTitle->setObjectName(QStringLiteral("stepTitle"));
+    printLayout->addWidget(printTitle);
+
+    auto *printSubtitle = new QLabel(
+        tr("The pattern is laid on the sheets you will print on, and the sheets carry their frame, "
+           "their marks and their numbers."),
+        printPage);
+    printSubtitle->setObjectName(QStringLiteral("stepSubtitle"));
+    printSubtitle->setWordWrap(true);
+    printLayout->addWidget(printSubtitle);
+    printLayout->addSpacing(12);
+
+    m_print = new PrintPanel(printPage);
+    printLayout->addWidget(m_print);
+    printLayout->addStretch(1);
+
+    tabs->addTab(printPage, tr("Print"));
+
+    // ── Plotter ────────────────────────────────────────────────────────────────────────────────
+    auto *plotter = new QWidget(tabs);
+    auto *plotterLayout = new QVBoxLayout(plotter);
+    auto *soon = new QLabel(tr("Coming soon"), plotter);
+    soon->setAlignment(Qt::AlignCenter);
+    plotterLayout->addStretch(1);
+    plotterLayout->addWidget(soon);
+    plotterLayout->addStretch(1);
+    tabs->addTab(plotter, tr("Plotter"));
+
+    m_tabs = tabs;
+    layout->addWidget(tabs, 1);
 
     m_error = new QLabel(this);
     m_error->setObjectName(QStringLiteral("importError"));
@@ -128,12 +195,11 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     m_error->hide();
     layout->addWidget(m_error);
 
-    layout->addStretch(1);
-
     m_continue = new QPushButton(tr("Generate the plan"), this);
     m_continue->setObjectName(QStringLiteral("primaryButton"));
     m_continue->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_continue);
+
     connect(m_continue, &QPushButton::clicked, this, &CutPlanPage::Continue);
 
     auto *back = new QPushButton(tr("Back"), this);
@@ -166,9 +232,11 @@ void CutPlanPage::SetSizes(const QVector<QPair<QString, QString>> &sizes)
         m_boxesLayout->addWidget(box);
         m_boxes.append({size.first, box});
         connect(box, &QCheckBox::toggled, this, &CutPlanPage::UpdateContinue);
+        connect(box, &QCheckBox::toggled, this, &CutPlanPage::UpdateGenerateText);
     }
 
     m_boxesBlock->setVisible(!sizes.isEmpty());
+    UpdateGenerateText();
     UpdateContinue();
 }
 
@@ -218,4 +286,62 @@ void CutPlanPage::UpdateContinue()
     // No size, no plan: there is no plan with nothing in it, so the way forward is closed rather
     // than leading to an empty canvas.
     m_continue->setEnabled(m_boxes.isEmpty() || !CheckedSizeIds().isEmpty());
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CutPlanPage::ActiveTab() const -> Tab
+{
+    if (m_tabs == nullptr)
+    {
+        return Tab::Cutting;
+    }
+
+    switch (m_tabs->currentIndex())
+    {
+        case 1:
+            return Tab::Print;
+        case 2:
+            return Tab::Plotter;
+        default:
+            return Tab::Cutting;
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CutPlanPage::PrintSettings() const -> PrintPanel *
+{
+    return m_print;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::UpdateGenerateText()
+{
+    if (m_print == nullptr)
+    {
+        return;
+    }
+
+    // What the first step kept, said where Ostara says it: the print panel's « Generate » line is a
+    // reminder of the generation being made, never a choice.
+    QStringList labels;
+    for (const auto &entry : m_boxes)
+    {
+        if (entry.second->isChecked())
+        {
+            labels.append(entry.second->text());
+        }
+    }
+
+    if (labels.isEmpty())
+    {
+        m_print->SetSizesText(QString());
+    }
+    else if (labels.size() == 1)
+    {
+        m_print->SetSizesText(tr("Size %1").arg(labels.first()));
+    }
+    else
+    {
+        m_print->SetSizesText(tr("Size range %1").arg(labels.join(QStringLiteral("–"))));
+    }
 }

@@ -26,7 +26,16 @@
 
 #include "app/workspacepage.h"
 
+#include "app/print/printitems.h"
+#include "core/print/exportcoverpage.h"
+#include "core/print/printmetrics.h"
+#include "core/print/printplan.h"
+
+#include <QGraphicsPathItem>
+#include <QGraphicsPolygonItem>
+#include <QPainterPath>
 #include <QGraphicsScene>
+#include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSvgItem>
 #include <QSvgRenderer>
 #include <QGraphicsView>
@@ -35,6 +44,7 @@
 #include <QListWidget>
 #include <QPolygonF>
 #include <QPushButton>
+#include <QTransform>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -49,7 +59,7 @@ constexpr double kMmPerPx = 25.4 / 96.0;
 //---------------------------------------------------------------------------------------------------------------------
 /// The piece's own drawing as a document of its own, sized to its own box — so one unit is one pixel
 /// and the placement of the piece can be applied to it as a transform, without a scaling of its own.
-auto SvgDocument(const PieceDecor &decor) -> QByteArray
+auto SvgDocument(const PieceDecor &decor, bool oneInk) -> QByteArray
 {
     const QRectF box = decor.box;
 
@@ -63,7 +73,22 @@ auto SvgDocument(const PieceDecor &decor) -> QByteArray
                            QString::number(box.left(), 'f', 3),
                            QString::number(box.top(), 'f', 3));
 
-    svg += decor.content;
+    // ⚠️ **Une seule encre.** Le décor est recopié du dessin, et le dessin d'une taille porte la
+    // couleur et les pointillés du STYLE de cette taille : un chemin interne y arrive en magenta
+    // pointillé, le droit-fil en rouge. Sur une pièce qu'on coupe, ça donne un contour noir et des
+    // traits de couleur — deux dessins superposés au lieu d'un. Le plan de coupe dessine donc la
+    // pièce d'une seule encre, la sienne : on force les traits au noir, et l'épaisseur et les
+    // pointillés du décor tombent avec eux.
+    QString ink = decor.content;
+    if (oneInk)
+    {
+        static const QRegularExpression colour(QStringLiteral("stroke=\"#[0-9A-Fa-f]{3,6}\""));
+        static const QRegularExpression dashes(QStringLiteral("\\s*stroke-dasharray=\"[^\"]*\""));
+        ink.replace(colour, QStringLiteral("stroke=\"#000000\""));
+        ink.remove(dashes);
+    }
+
+    svg += ink;
     svg += QStringLiteral("</svg>");
 
     return svg.toUtf8();
@@ -219,6 +244,7 @@ void WorkspacePage::ZoomBy(double factor)
 //---------------------------------------------------------------------------------------------------------------------
 void WorkspacePage::Draw(const CutPlan &plan)
 {
+    m_printMode = false;
     m_scene->clear();
 
     if (!plan.ok)
@@ -231,8 +257,12 @@ void WorkspacePage::Draw(const CutPlan &plan)
     // actually needs.
     QPen border(QColor(0xD6, 0xD6, 0xD6));
     border.setCosmetic(true);
-    m_scene->addRect(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx), border,
-                     QBrush(Qt::white));
+    // ⚠️ **Le fond est le TISSU, et il est coloré — d'un bout à l'autre.** Il était blanc avec des
+    // pièces beiges par-dessus : deux fonds, une bande blanche autour du plan et des pièces qui se
+    // découpent en clair sur du clair. Le tissu prend donc la couleur, et les pièces ne sont plus
+    // remplies du tout : ce qu'on voit d'une pièce, c'est son trait.
+    const QBrush clothBrush(QColor(0xF7, 0xF5, 0xF2));
+    m_scene->addRect(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx), border, clothBrush);
 
     // The fold, in dashes: the one thing a folded plan has to show, because a piece glued to that
     // edge is cut ON the fold and not through it.
@@ -249,7 +279,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
 
     QPen piecePen(QColor(0x2B, 0x2B, 0x2B));
     piecePen.setCosmetic(true);
-    const QBrush pieceBrush(QColor(0xF7, 0xF5, 0xF2));
+    const QBrush pieceBrush(Qt::NoBrush);
 
     const int count =
         std::min(static_cast<int>(plan.placements.size()), static_cast<int>(plan.footprint.polygons.size()));
@@ -257,16 +287,34 @@ void WorkspacePage::Draw(const CutPlan &plan)
     {
         const QPointF origin = index < plan.origins.size() ? plan.origins.at(index) : QPointF();
         const Placement &placement = plan.placements.at(static_cast<size_t>(index));
-        m_scene->addPolygon(
-            PlacedOutline(plan.footprint.polygons.at(static_cast<size_t>(index)), placement, origin),
-            piecePen, pieceBrush);
 
-        if (index >= plan.poses.size())
+        // ⚠️ **La pièce, c'est son ENCRE — pas l'empreinte du moteur.** L'empreinte est l'union des
+        // contours, faite pour nidifier : elle n'a ni crans, ni ligne de couture, ni chemin interne.
+        // Ce qu'on dessine est la pièce telle qu'Ostara la dessine, et son contenu vient avec elle —
+        // le contour, ses crans, ses chemins internes, ses repères et son cartouche sont UN objet.
+        // L'empreinte ne sert plus que de repli, pour une pose dont le payload ne portait pas l'encre.
+        const CutPiece &pose = plan.poses.at(index);
+        QPainterPath shape;
+        if (!pose.ink.isEmpty())
         {
-            continue;
+            for (const QPolygonF &polygon : pose.ink)
+            {
+                QPolygonF placed;
+                placed.reserve(polygon.size());
+                for (const QPointF &point : polygon)
+                {
+                    placed.append(PlacedPoint(point, placement, origin));
+                }
+                shape.addPolygon(placed);
+            }
+        }
+        else
+        {
+            shape.addPolygon(PlacedOutline(
+                plan.footprint.polygons.at(static_cast<size_t>(index)), placement, origin));
         }
 
-        const CutPiece &pose = plan.poses.at(index);
+        m_scene->addPath(shape, piecePen, pieceBrush);
 
         // ── Le décor de la pièce ────────────────────────────────────────────────────────────────
         //
@@ -278,7 +326,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
         const PieceDecor decor = plan.decor.value(pose.name);
         if (!decor.content.isEmpty())
         {
-            auto *renderer = new QSvgRenderer(SvgDocument(decor), m_scene);
+            auto *renderer = new QSvgRenderer(SvgDocument(decor, /*oneInk=*/true), m_scene);
             if (renderer->isValid())
             {
                 auto *item = new QGraphicsSvgItem();
@@ -345,4 +393,288 @@ void WorkspacePage::Draw(const CutPlan &plan)
     }
 
     m_detail->setText(detail);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+/// One piece of a print run, and the only thing of it a hand can take.
+///
+/// **It carries its placement and not its geometry**: the outline it was drawn with is the size's
+/// own, and the frame it stands in belongs to the footprint the engine placed — the union of that
+/// piece over the sizes being printed. Moving one size therefore moves every size of that piece,
+/// which is what a graded plan means.
+///
+/// The move is applied on RELEASE, not while dragging: the sheets have to be read again when the
+/// piece has landed, and reading them mid-gesture would rebuild the scene under the hand that is
+/// still holding it.
+class PrintPieceItem : public QGraphicsPathItem
+{
+public:
+    PrintPieceItem(const QPainterPath &shape, int placementIndex, WorkspacePage *page)
+      : QGraphicsPathItem(shape), m_placementIndex(placementIndex), m_page(page)
+    {
+        setFlag(QGraphicsItem::ItemIsMovable, true);
+        setFlag(QGraphicsItem::ItemIsSelectable, false);
+        setCursor(Qt::OpenHandCursor);
+    }
+
+    /// **Grabbed by its SURFACE, never by its outline alone.** The item is drawn unfilled, and a
+    /// path item's own shape follows the stroke it draws — so the piece could only be taken by the
+    /// line, and a piece one has to click exactly on the line of is a piece one cannot move. The
+    /// filled path is the same answer Ostara's own hit item gives.
+    auto shape() const -> QPainterPath override { return path(); }
+
+protected:
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override
+    {
+        QGraphicsPathItem::mouseReleaseEvent(event);
+
+        // With ItemIsMovable the item is moved by its own POSITION, its path untouched — so the
+        // gesture is read there, and put back to zero before the scene is drawn again.
+        const QPointF delta = pos();
+        if (delta.isNull())
+        {
+            return;
+        }
+
+        setPos(QPointF());
+        m_page->MovePrintPiece(m_placementIndex, delta);
+    }
+
+private:
+    int m_placementIndex{-1};
+    WorkspacePage *m_page{nullptr};
+};
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::ShowPrint(const PrintPlan &plan, const ExportTemplate &decor, bool framed,
+                              const QByteArray &coverSvg, const QRectF &coverPaper,
+                              const QRectF &coverPage)
+{
+    // What is shown is kept: a piece a hand moves changes the plan, and redrawing it must not mean
+    // laying everything out again.
+    m_printPlan = plan;
+    m_printDecor = decor;
+    m_printFramed = framed;
+    m_coverSvg = coverSvg;
+    m_coverPaper = coverPaper;
+    m_coverPage = coverPage;
+    m_printMode = true;
+
+    RedrawPrint();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RedrawPrint()
+{
+    const PrintPlan &plan = m_printPlan;
+    const ExportTemplate &decor = m_printDecor;
+    const bool framed = m_printFramed;
+
+    m_scene->clear();
+
+    if (!plan.ok)
+    {
+        m_detail->setText(plan.error);
+        return;
+    }
+
+    // ── Le papier ───────────────────────────────────────────────────────────────────────────────
+    //
+    // One white rectangle per PRINTED sheet, and none over a cell with nothing on it: a blank sheet
+    // drawn white would be the canvas promising a page the file will never write.
+    const QRectF planRect = plan.grid.valid ? plan.grid.planRect
+                                            : QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx);
+
+    if (plan.grid.valid)
+    {
+        MakeArtboardPaper(m_scene, plan.grid, plan.sheets);
+    }
+    else
+    {
+        // A roll and the A0 sheet: no sheets are cut, so the plan is one piece of paper.
+        MakePaper(m_scene, planRect);
+    }
+
+    // The cover page's own sheet, for the formats that give it one. Paper only — the page is not a
+    // cell, so it never enters ExportSheets and never takes a number.
+    if (!m_coverPaper.isEmpty())
+    {
+        MakePaper(m_scene, m_coverPaper);
+    }
+
+    // ── Le décor ───────────────────────────────────────────────────────────────────────────────
+    //
+    // The tiling as the painter sees it: the grid's own cell size, and the sheets that carry a
+    // piece. Nothing is decided here — the painter reads the same rules Ostara's canvas reads.
+    if (plan.grid.valid)
+    {
+        ExportMarkGrid grid;
+        grid.columns = plan.grid.columns;
+        grid.rows = plan.grid.rows;
+        grid.sheetWidthPx = plan.grid.cellWidthPx;
+        grid.sheetHeightPx = plan.grid.cellHeightPx;
+        grid.pxPerMm = PrintMetrics::MmToPx(1.0);
+        grid.sheets = plan.sheets;
+
+        m_scene->addItem(
+            new AssemblyMarksItem(decor, plan.grid.planRect.topLeft(), grid, framed));
+    }
+
+    // ── La page de garde ───────────────────────────────────────────────────────────────────────
+    //
+    // At the size it will be printed, and never resized: the page is the payload's, at 19 × 25.9 cm,
+    // wherever the format put it.
+    if (!m_coverPage.isEmpty() && !m_coverSvg.isEmpty())
+    {
+        m_scene->addItem(new CoverPageItem(m_coverPage, m_coverSvg));
+    }
+
+    // ── Les pièces ─────────────────────────────────────────────────────────────────────────────
+    //
+    // **Each size draws its own form, at the placement its envelope took.** The engine placed one
+    // footprint per piece — the union of that piece over the sizes being printed — so every size of
+    // that piece stands where the envelope stands, and its own contour is mapped by the same frame:
+    // the rotation about the envelope's own origin, and its translation.
+    // **No fill.** A printed plan is a drawing of the pieces, not a plan of the cloth: Ostara's
+    // print canvas paints the outlines and nothing inside them — the coloured fill belongs to the
+    // cutting plan, where a piece is something to cut out.
+    const QBrush pieceBrush(Qt::NoBrush);
+
+    for (int layerIndex = 0; layerIndex < plan.layers.size(); ++layerIndex)
+    {
+        const PrintLayer &layer = plan.layers.at(layerIndex);
+
+        // **The decor belongs to ONE size, and never to all of them.** Ostara's canvas draws it on the
+        // reference layer — the smallest size of the range, the first the payload writes — and lets
+        // every other size draw its own ink only; a cartouche, an annotation or a grain line
+        // repeated once per size would be a drawing of the same words ten times over. The payload
+        // carries a copy per size all the same: the copy is a lookup key, not a decision to draw ten
+        // of them. The run's own order is largest first, so the flag comes from the payload.
+        const bool reference = layer.reference;
+
+        // The size's own line, as the payload drew it: its colour, and its dash pattern when it
+        // has one. A Qt pattern counts in multiples of the pen width, so the pixels the SVG states
+        // are divided by it — the same conversion Ostara's DashPen makes.
+        QPen piecePen(layer.colour);
+        piecePen.setCosmetic(true);
+        if (!layer.dashes.isEmpty())
+        {
+            // The pen is one pixel wide, so the pattern's own pixel lengths are already the
+            // multiples of the pen width Qt asks for.
+            piecePen.setStyle(Qt::CustomDashLine);
+            piecePen.setDashPattern(layer.dashes);
+        }
+
+        for (const PrintPiece &piece : layer.pieces)
+        {
+            if (piece.placementIndex < 0
+                || piece.placementIndex >= static_cast<int>(plan.placements.size()))
+            {
+                continue;
+            }
+
+            const Placement &placement = plan.placements.at(static_cast<std::size_t>(piece.placementIndex));
+            const QPointF origin = plan.origins.at(piece.placementIndex);
+
+            // **The piece as it is DRAWN, and not the contour the engine unioned.** Its notches are
+            // part of it — spliced into the contour by Ostara — and a printed piece without them
+            // cannot be mounted. A subpath of its own is the seam allowance, which a print shows.
+            QPainterPath shape;
+            // **Nothing when the payload says nothing.** A piece whose main path is hidden and that
+            // carries no seam allowance is not drawn at all by Ostara, and the payload carries an
+            // empty ink for it; drawing its plain outline here would be drawing what the creator
+            // chose not to show.
+            for (const QPolygonF &polygon : piece.ink)
+            {
+                QPolygonF placed;
+                placed.reserve(polygon.size());
+                for (const QPointF &point : polygon)
+                {
+                    placed.append(PlacedPoint(point, placement, origin));
+                }
+                shape.addPolygon(placed);
+            }
+
+            auto *item = new PrintPieceItem(shape, piece.placementIndex, this);
+            item->setPen(piecePen);
+            item->setBrush(pieceBrush);
+            m_scene->addItem(item);
+
+            // The piece's own drawing, laid by the same frame as its outline — the same rule the
+            // cutting plan's canvas applies, and the same transform.
+            if (reference && !piece.decor.content.isEmpty())
+            {
+                auto *renderer = new QSvgRenderer(SvgDocument(piece.decor, /*oneInk=*/false), m_scene);
+                if (renderer->isValid())
+                {
+                    auto *item = new QGraphicsSvgItem();
+                    item->setSharedRenderer(renderer);
+
+                    QTransform transform;
+                    transform.translate(placement.x, placement.y);
+                    transform.rotate(placement.rotation);
+                    transform.translate(piece.decor.box.left() - origin.x(),
+                                        piece.decor.box.top() - origin.y());
+
+                    item->setTransform(transform);
+                    m_scene->addItem(item);
+                }
+            }
+        }
+    }
+
+    // ── Les traits de coupe ───────────────────────────────────────────────────────────────────
+    //
+    // The scene draws its own cut lines over the pieces — which is where they are readable — and
+    // stands them down wherever the FRAME draws them: two lines in the same place, one of them the
+    // user's at the opacity she set, is the defect Ostara's preview was cured of.
+    if (plan.grid.valid && !framed)
+    {
+        m_scene->addItem(new ArtboardGridItem(plan.grid.planRect, plan.grid.cellWidthPx,
+                                              plan.grid.cellHeightPx, plan.grid.columns,
+                                              plan.grid.rows, plan.sheets));
+    }
+
+    QRectF sceneRect = planRect.adjusted(-20.0, -20.0, 20.0, 20.0);
+    if (!m_coverPaper.isEmpty())
+    {
+        sceneRect = sceneRect.united(m_coverPaper.adjusted(-20.0, -20.0, 20.0, 20.0));
+    }
+
+    m_scene->setSceneRect(sceneRect);
+    m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
+
+    // The same figures Ostara writes under a printed plan: the cloth the run takes, then the same
+    // two in the units somebody else buys it in.
+    const double widthMm = plan.binWidthPx * kMmPerPx;
+    const double lengthMm = plan.usedHeightPx * kMmPerPx;
+
+    QString detail = tr("Document width %1 · length %2").arg(Cm(widthMm), Cm(lengthMm));
+    if (plan.grid.valid)
+    {
+        detail += QStringLiteral(" · ")
+                  + tr("%n sheet(s)", nullptr, plan.sheets.count);
+    }
+
+    detail += QStringLiteral(" · ") + tr("Fabric width %1 · length %2").arg(Inch(widthMm), Yards(lengthMm));
+    m_detail->setText(detail);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::MovePrintPiece(int placementIndex, const QPointF &delta)
+{
+    if (!m_printMode || placementIndex < 0
+        || placementIndex >= static_cast<int>(m_printPlan.placements.size()))
+    {
+        return;
+    }
+
+    Placement &placement = m_printPlan.placements.at(static_cast<std::size_t>(placementIndex));
+    placement.x += delta.x();
+    placement.y += delta.y();
+
+    // **The paper follows the ink.** A sheet the gesture emptied is not printed any more, and one
+    // it put a piece back on is printed again — the same rule the layout ran, read again.
+    m_printPlan.RefreshSheets();
+    RedrawPrint();
 }

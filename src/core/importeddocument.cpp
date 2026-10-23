@@ -237,8 +237,27 @@ auto ImportedDocument::Pieces(const QStringList &sizeLayerIds) const -> QStringL
                 continue;
             }
 
+            // ⚠️ **A GROUP'S MEMBERS HANG ONE LEVEL LOWER, and they are the pieces — the wrapper is
+            // not.** Ostara draws a group of two or more as one object that nests each member
+            // (`<g id="Manche__Groupe_"><g id="Manche"/><g id="Manche_poignet"/></g>`), while the
+            // payload names every member on its own, carrying the group's key so the nesting lays
+            // them as one block. A reader that stopped at the direct children saw the group's name,
+            // which matches no piece, and quietly planned the pattern without those pieces. The
+            // wrapper's own id is kept only when it nests nothing — that is what a lone piece is.
+            bool isGroup = false;
+            for (QDomElement member = piece.firstChildElement(QStringLiteral("g")); !member.isNull();
+                 member = member.nextSiblingElement(QStringLiteral("g")))
+            {
+                isGroup = true;
+                const QString memberId = member.attribute(QLatin1String("id"));
+                if (!memberId.isEmpty() && !pieces.contains(memberId))
+                {
+                    pieces.append(memberId);
+                }
+            }
+
             const QString id = piece.attribute(QLatin1String("id"));
-            if (!id.isEmpty() && !pieces.contains(id))
+            if (!isGroup && !id.isEmpty() && !pieces.contains(id))
             {
                 pieces.append(id);
             }

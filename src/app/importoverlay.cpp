@@ -29,6 +29,7 @@
 
 #include "app/checklistpage.h"
 #include "app/cutplanpage.h"
+#include "app/print/printpanel.h"
 #include "app/importpage.h"
 #include "app/layerspage.h"
 #include "core/layerreducer.h"
@@ -378,6 +379,22 @@ void ImportOverlay::Generate()
 {
     m_cutPlan->ClearError();
 
+    // The button obeys the tab: a print run is not a cutting plan, and generating one from the
+    // other's settings is exactly what she saw happen.
+    if (m_cutPlan->ActiveTab() == CutPlanPage::Tab::Print)
+    {
+        PrintPanel *panel = m_cutPlan->PrintSettings();
+        if (panel != nullptr)
+        {
+            emit PrintRequested(m_cutPlan->CheckedSizeIds(),
+                                panel->Model() != nullptr
+                                    ? QString::fromLatin1(panel->Model()->token)
+                                    : QStringLiteral("A0Roll"),
+                                panel->Columns(), panel->MarginMm(), panel->GapMm());
+        }
+        return;
+    }
+
     const CutPlanRequest request = m_cutPlan->Request();
     const QStringList sizes = m_cutPlan->CheckedSizeIds();
 
@@ -385,7 +402,8 @@ void ImportOverlay::Generate()
     // that is what gets its own thread below.
     QVector<CutSize> loaded;
     QString error;
-    if (!Pattern::Load(m_document, sizes, m_pieceIds, request.foldedFabric, loaded, &error))
+    if (!Pattern::Load(m_document, sizes, m_pieceIds,
+                       request.foldedFabric ? Cloth::Folded : Cloth::Flat, loaded, &error))
     {
         m_cutPlan->ShowError(error);
         return;

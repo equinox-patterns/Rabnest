@@ -28,7 +28,10 @@
 #define WORKSPACEPAGE_H
 
 #include "core/cutplan.h"
+#include "core/print/exporttemplate.h"
+#include "core/print/printplan.h"
 
+#include <QByteArray>
 #include <QVector>
 #include <QWidget>
 
@@ -52,6 +55,29 @@ public:
     /// Shows one plan, and nothing else: the list of them is the dock's, not the canvas's.
     void Show(const CutPlan &plan);
 
+    /// Shows a PRINT run, as Ostara's own export canvas shows it: the sheets, their paper, the
+    /// frame, the scissors, the marks, the numbers, and the cover page at its seat.
+    ///
+    /// **The same drawing as Ostara's, and drawn by the same code**: the decor is
+    /// ExportMarkPainter, the paper and the grid are its scene items, and none of them is
+    /// re-implemented here.
+    ///
+    /// The two cover rectangles are the caller's, because the seat is a property of the FORMAT:
+    /// @p coverPaper is the sheet the page stands on (empty unless it needs one of its own), and
+    /// @p coverPage is the page itself — 19 × 25.9 cm, never resized here.
+    void ShowPrint(const PrintPlan &plan, const ExportTemplate &decor, bool framed,
+                   const QByteArray &coverSvg, const QRectF &coverPaper, const QRectF &coverPage);
+
+    /// Redraws the print run as it now stands — called after a hand moved a piece, because the
+    /// paper follows the ink: a sheet a hand has emptied is dropped, and one it put a piece back on
+    /// is printed again.
+    void RedrawPrint();
+
+    /// A piece of the print run was moved, by @p delta in the scene's own coordinates. The
+    /// placement it is drawn at takes the move — every size of that piece follows, since they share
+    /// one footprint — and the sheets are read again.
+    void MovePrintPiece(int placementIndex, const QPointF &delta);
+
     /// A blank canvas — « back to home » leaves nothing of the PDF on screen.
     void Clear();
 
@@ -69,6 +95,16 @@ private:
     QGraphicsView *m_view = nullptr;
     QGraphicsScene *m_scene = nullptr;
     QLabel *m_detail = nullptr;
+
+    /// The print run on screen, and what drew it — kept so a moved piece can be redrawn without
+    /// re-laying anything.
+    PrintPlan m_printPlan;
+    ExportTemplate m_printDecor;
+    QByteArray m_coverSvg;
+    QRectF m_coverPaper;
+    QRectF m_coverPage;
+    bool m_printFramed = false;
+    bool m_printMode = false;
 };
 
 #endif  // WORKSPACEPAGE_H

@@ -28,6 +28,7 @@
 #define PATTERN_H
 
 #include <QPointF>
+#include <QPolygonF>
 #include <QRectF>
 #include <QString>
 #include <QHash>
@@ -68,9 +69,33 @@ struct CutPiece
     /// cloth's and not the piece's.
     QVector<QPointF> outline;
 
+    /// The contour AS DRAWN — `outline` with its notches, in the same frame and the same pixels.
+    ///
+    /// ⚠️ **Two contours, because a plan CUTS and a print DRAWS.** The nesting can only see the
+    /// plain form: a notch is a cut, so unioning a notched contour would give a footprint smaller
+    /// than the piece that gets cut. But a print shows the piece, and a notch is the assembly mark —
+    /// a piece drawn without it cannot be mounted. Ostara writes both (`outlineInk` and `outline`),
+    /// and this is the first of the two.
+    ///
+    /// One polygon per subpath: a piece with a seam allowance draws the sewing line AND the
+    /// allowance's own outline, and a notch is spliced into whichever of them it belongs to.
+    QVector<QPolygonF> ink;
+
     bool onFold = false;
     QPointF foldA;
     QPointF foldB;
+
+    /// The footprint this pose belongs to, as the payload names it — `g<groupId>` for a member of a
+    /// group, the piece's own name otherwise.
+    ///
+    /// ⚠️ **A group is ONE rigid block, and the nesting must see it that way.** Its members are two
+    /// pieces to draw and one footprint to place: the payload keys them together, so a reader that
+    /// keyed on the name would nest them apart — the very thing a group exists to prevent.
+    QString footprint;
+
+    /// The group the piece belongs to, empty for a piece that stands alone. Only the footprint
+    /// reads it; `footprint` above is what a placement is looked up by.
+    QString groupKey;
 
     /// The grain line, in the piece's own frame — the segment and not the angle. A plan reads the
     /// angle; it DRAWS the line, and a line without its ends is a direction with nowhere to go.
@@ -94,6 +119,16 @@ struct CutSize
     QString label;
     QVector<CutPiece> poses;
 
+    /// Whether this is the size the drawing resolved its decor on — the FIRST size Ostara writes,
+    /// which is the smallest of the range.
+    ///
+    /// ⚠️ **The payload's own order, never the order the run was asked for.** Rabnest is handed its
+    /// sizes largest first; Ostara walks the range from the smallest up, and that first size is the
+    /// only one allowed to carry a cartouche or an annotation — a drawing of the same words once per
+    /// size is ten cartouches on one sheet. Reading the order from the run instead would put the
+    /// decor on the largest size, which is not where Ostara put it.
+    bool reference{false};
+
     /// This size's decor, by piece name.
     ///
     /// ⚠️ **Per size, and it could not be otherwise once the payload projects it.** Ostara writes the
@@ -102,6 +137,22 @@ struct CutSize
     /// one read and drew it everywhere — invisible while the copies were identical, and wrong the
     /// moment they stopped being.
     QHash<QString, PieceDecor> decor;
+};
+
+/**
+ * @brief What an output does with the FORM of a piece cut on the fold.
+ *
+ * **Only a cutting plan ever changes it.** A print reproduces the payload exactly: a piece the PDF
+ * carries folded is printed folded, one it carries whole is printed whole — the drawing is the
+ * document, and a print that re-formed its pieces would be printing a pattern that is not the one
+ * the client opened. A cutting plan is the one place where the destination decides, because the
+ * cloth does: on folded cloth the half goes on the fabric, on flat cloth the whole piece is cut.
+ */
+enum class Cloth
+{
+    AsDrawn, ///< the form the payload carries — a print, and nothing else
+    Folded,  ///< the half, glued to the fold of the cloth
+    Flat     ///< the whole piece, cut flat
 };
 
 /**
@@ -122,15 +173,16 @@ public:
     /**
      * @param sizeIds      the layers the user kept, by their SVG id
      * @param pieceNames   the pieces the user kept, by name
-     * @param foldedFabric the cloth the plan will be laid on — it alone decides which form of a
-     *                     fold piece is laid, and whether the twin exists
+     * @param cloth        what the OUTPUT does with a piece cut on the fold — @see Cloth. A print
+     *                     passes @ref Cloth::AsDrawn, which is a promise: the print reproduces the
+     *                     payload's own form, folded or whole, and changes nothing about it.
      * @return false when the payload carries no pieces block, or when a kept size has none; @p error
      *         then says which
      */
     /// @param decor  what each piece is DRAWN with, by piece name — filled from the decor layer, and
     ///               left empty when the file carries none
     static bool Load(const ImportedDocument &document, const QStringList &sizeIds,
-                     const QStringList &pieceNames, bool foldedFabric, QVector<CutSize> &out,
+                     const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
                      QString *error);
 };
 

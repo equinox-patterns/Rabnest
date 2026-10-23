@@ -79,6 +79,12 @@ signals:
     /// Empty when the journey was given up — closing the panel, or Escape.
     void Finished(const QVector<CutPlan> &plans);
 
+    /// The Print tab asked to generate: the sizes it ticked, and the paper it chose. The window
+    /// lays the run out, because the print needs the document and the settings of the panel it
+    /// keeps — not the ones this page would have to rebuild.
+    void PrintRequested(const QStringList &sizeIds, const QString &modelToken, int columns,
+                        double marginMm, double gapMm);
+
 
 protected:
     void paintEvent(QPaintEvent *event) override;
