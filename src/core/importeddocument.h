@@ -1,0 +1,120 @@
+/************************************************************************
+ **
+ **  @file   importeddocument.h
+ **  @author Sophie Denys <contact@sophiedenys.com>
+ **  @date   22/10/2026
+ **
+ **  @brief  What the user just imported, and what Rabnest is allowed to do with it.
+ **
+ **  @copyright
+ **
+ **  Copyright (C) 2026 Sophie Denys <contact@sophiedenys.com>
+ **
+ **  This program is free software: you can redistribute it and/or modify
+ **  it under the terms of the GNU General Public License as published by
+ **  the Free Software Foundation, either version 3 of the License, or
+ **  (at your option) any later version.
+ **
+ **  This program is distributed in the hope that it will be useful,
+ **  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ **  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ **  GNU General Public License for more details.
+ **
+ **  You should have received a copy of the GNU General Public License
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ **
+ *************************************************************************/
+
+#ifndef IMPORTEDDOCUMENT_H
+#define IMPORTEDDOCUMENT_H
+
+#include <QString>
+#include <QVector>
+
+/// One layer of an imported PDF, as the user will see it in a list.
+///
+/// `decor` is the one Rabnest never shows: the layout layer — cartouche, labels, registration
+/// marks — which belongs to the drawing and not to a choice. It is found by the marker Ostara
+/// writes on it (`ostara:layout="yes"`), never by its name, because that name is the creator's
+/// own and can be anything.
+struct ImportedLayer
+{
+    QString id;     ///< the SVG id, which is what the payload is navigated by
+    QString label;  ///< what a human reads: inkscape:label, else <title>, else the id
+    bool decor = false;
+};
+
+/// A PDF the user picked, read far enough to know which journey they are on.
+///
+/// There are two, and only two. A PDF **Ostara wrote** carries the payload the plan was drawn
+/// from, so Rabnest can offer sizes, pieces, outputs and a new nesting. Any other PDF carries
+/// nothing Rabnest understands: the layers are still there — the reader's own optional content —
+/// but there are no pieces to choose and nothing to re-nest, so the only gesture left is to write
+/// the same document back with fewer layers.
+///
+/// Nothing is kept: this object lives as long as the window, and no file is written beside the
+/// PDF the user chose.
+class ImportedDocument
+{
+public:
+    enum class Kind
+    {
+        Ostara,  ///< it carries the payload — the full journey
+        Foreign  ///< it does not — the layer reduction, and nothing else
+    };
+
+    /// Reads @p path and says which kind of document it is.
+    ///
+    /// The file is never modified and nothing is copied: on the Ostara path the payload is held
+    /// in memory, decompressed, because every later step — sizes, pieces, nesting — reads it.
+    static ImportedDocument Read(const QString &path);
+
+    /// The same document, built from a payload that never came from a PDF.
+    ///
+    /// A test bench needs to state a payload outright — a piece whose fold is known, a quantity
+    /// nobody typed — and going through a PDF to say it would be testing the PDF as much as the
+    /// plan. The layers are read from the SVG exactly as they are read from a real payload, so
+    /// nothing else about the journey changes.
+    static ImportedDocument FromPayload(const QByteArray &svg, const QString &path);
+
+    Kind kind() const { return m_kind; }
+    QString path() const { return m_path; }
+
+    /// The file's own name, without its extension — what an export starts from.
+    QString stem() const;
+
+    /// The layers the user may choose, in the order the payload holds them. The layout layer is
+    /// not among them: it is present in `decorLayerId()` instead.
+    const QVector<ImportedLayer> &layers() const { return m_layers; }
+
+    /// The layout layer's id, or empty when the document has none — a single-size run writes its
+    /// decor flat, and a foreign PDF knows nothing of it.
+    QString decorLayerId() const;
+
+    /// The payload, as Ostara wrote it. Empty for a foreign document.
+    QByteArray payload() const { return m_payload; }
+
+    /// The pieces the chosen size layers hold, by name, in the order they first appear.
+    ///
+    /// A union and not an intersection: a piece missing from one size — a variant, a graded block
+    /// that does not exist there — is still a piece of the pattern, and hiding it would silently
+    /// drop what the creator drew. The user ticks what they want; the sizes that lack it simply
+    /// contribute nothing.
+    QStringList Pieces(const QStringList &sizeLayerIds) const;
+
+    /// Why the file could not be read, when it could not. Empty is a document Rabnest can use.
+    QString error() const { return m_error; }
+    bool isValid() const { return m_error.isEmpty(); }
+
+private:
+    void ParsePayload();
+
+    Kind m_kind = Kind::Foreign;
+    QString m_path;
+    QByteArray m_payload;
+    QVector<ImportedLayer> m_layers;
+    QString m_decorLayerId;
+    QString m_error;
+};
+
+#endif  // IMPORTEDDOCUMENT_H
