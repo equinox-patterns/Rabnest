@@ -129,15 +129,28 @@ struct CutSize
     /// decor on the largest size, which is not where Ostara put it.
     bool reference{false};
 
-    /// This size's decor, by piece name.
+    /// This size's decor, by piece name — and by POSE KEY for a twin.
     ///
     /// ⚠️ **Per size, and it could not be otherwise once the payload projects it.** Ostara writes the
     /// drawing once and seats it on every size; the seat differs a little from one size to the next,
     /// so two sizes no longer carry the same bytes. A table shared by every size kept only the last
     /// one read and drew it everywhere — invisible while the copies were identical, and wrong the
     /// moment they stopped being.
+    ///
+    /// ⚠️ **A twin has its own entry, under its own key.** A piece and its mirror are two drawings
+    /// of one piece: they share a name, and they do not share a position for their children. Keying
+    /// the block by name alone gave the twin the piece's block, which is why its cartouche, its
+    /// miniature and its annotations stayed on the side its outline had just left.
     QHash<QString, PieceDecor> decor;
 };
+
+/// The block a pose draws its children from: its own key when the table holds one — a twin does —
+/// and the piece's name otherwise. Read everywhere by this function, so the two spellings can never
+/// disagree.
+inline auto DecorFor(const QHash<QString, PieceDecor> &decor, const CutPiece &pose) -> PieceDecor
+{
+    return decor.value(pose.key, decor.value(pose.name));
+}
 
 /**
  * @brief What an output does with the FORM of a piece cut on the fold.

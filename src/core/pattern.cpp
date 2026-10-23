@@ -297,6 +297,62 @@ auto ParseTransform(const QString &text) -> Matrix
     return matrix;
 }
 
+//---------------------------------------------------------------------------------------------------------------------
+/// The inverse of @p matrix, or false when it collapses the plane.
+///
+/// Needed to re-lay a child whose own `transform` is left where the writer put it: the reflection that
+/// moves it is built in the child's LOCAL frame, and expressing it in the decor's frame takes a
+/// `M · F · M⁻¹`.
+auto Inverted(const Matrix &matrix, Matrix *out) -> bool
+{
+    const double det = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (std::abs(det) < 1e-12)
+    {
+        return false;
+    }
+
+    Matrix inverse;
+    inverse.a = matrix.d / det;
+    inverse.b = -matrix.b / det;
+    inverse.c = -matrix.c / det;
+    inverse.d = matrix.a / det;
+    inverse.e = -(inverse.a * matrix.e + inverse.c * matrix.f);
+    inverse.f = -(inverse.b * matrix.e + inverse.d * matrix.f);
+
+    *out = inverse;
+    return true;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto MatrixAttr(const Matrix &matrix) -> QString
+{
+    return QStringLiteral("matrix(%1,%2,%3,%4,%5,%6)")
+        .arg(QString::number(matrix.a, 'f', 6), QString::number(matrix.b, 'f', 6),
+             QString::number(matrix.c, 'f', 6), QString::number(matrix.d, 'f', 6),
+             QString::number(matrix.e, 'f', 3), QString::number(matrix.f, 'f', 3));
+}
+
+auto Shifted(const QPointF &delta) -> Matrix
+{
+    Matrix out;
+    out.e = delta.x();
+    out.f = delta.y();
+    return out;
+}
+
+auto FlipX() -> Matrix
+{
+    Matrix out;
+    out.a = -1.0;
+    return out;
+}
+
+/// The reflection about the vertical line `x = axisX`, as a matrix.
+auto Reflected(double axisX) -> Matrix
+{
+    return Compose(Shifted(QPointF(2.0 * axisX, 0.0)), FlipX());
+}
+
 
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -337,9 +393,17 @@ struct GrowingBox
     }
 };
 
-auto DecorBox(const QDomElement &element, const Matrix &outer, GrowingBox *box) -> void
+/// @param skipOwnTransform when true, the element's OWN `transform` is ignored and only its
+///        descendants' are applied — the box of what the element draws in its parent's frame is not
+///        what this returns, it is the box in the element's own frame. That is the frame a reflection
+///        is written in.
+auto DecorBox(const QDomElement &element, const Matrix &outer, GrowingBox *box,
+              bool skipOwnTransform = false) -> void
 {
-    const Matrix matrix = Compose(outer, ParseTransform(element.attribute(QStringLiteral("transform"))));
+    const Matrix matrix = skipOwnTransform
+                              ? outer
+                              : Compose(outer,
+                                        ParseTransform(element.attribute(QStringLiteral("transform"))));
 
     // ⚠️ **A `<text>` has no `d`, and the box used to ignore it entirely.** The fold mark's caption is
     // written as editable text — a `<text>` with its own `x`/`y` and a placement — so it contributed
@@ -466,6 +530,196 @@ auto ReadDecor(const QDomElement &decorElement, PieceDecor *out) -> bool
     return true;
 }
 
+/// Whether @p element holds a grain line or a fold mark anywhere below it — what tells the projection
+/// wrapper apart from a record group, which never does.
+auto HasTrace(const QDomElement &element) -> bool
+{
+    for (QDomElement child = element.firstChildElement(); !child.isNull();
+         child = child.nextSiblingElement())
+    {
+        if (child.tagName() == QLatin1String("path")
+            && (child.hasAttribute(QStringLiteral("ostara:grain"))
+                || child.hasAttribute(QStringLiteral("ostara:fold"))))
+        {
+            return true;
+        }
+        if (HasTrace(child))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// The `<decor>` children that are DRAWINGS, the projection wrapper unwrapped.
+///
+/// ⚠️ **The reference size and the others are not shaped the same.** Ostara seats the decor on each
+/// size by a pure translation, and writes that translation as a `<g>` around the WHOLE body — so the
+/// first size carries its children directly and every other size carries one `<g>` holding them all.
+/// Re-laying that wrapper as one child would move the block as a rigid whole and never negate the
+/// angle of a cartouche, while the reference size negates it: one piece, two drawings, depending on
+/// the size asked for.
+///
+/// ⚠️ **One level only, and that is the whole point.** A fold mark and its caption are each wrapped in
+/// a translation of their OWN (`foldProjection`), and those wrappers look exactly like the projection
+/// one — a `<g>` holding a marked trace. Unwrapping one of them folded ITS translation into the
+/// translation every child shares, which moved every other child by it: the fold's caption came off
+/// the mark, on every size but the reference one. Only the outermost wrapper — the one and only child
+/// of `<decor>` — is the projection, and it is the only thing unwrapped here.
+///
+/// @param outer carries the wrapper's translation, folded in on the right: the payload's own
+///        coordinates are the body's, so its translation applies BEFORE the shift and the mirror.
+auto DecorLeaves(const QDomElement &decorElement, Matrix *outer) -> QVector<QDomElement>
+{
+    const auto isPureTranslation = [](const Matrix &m) {
+        return std::abs(m.a - 1.0) < 1e-9 && std::abs(m.d - 1.0) < 1e-9
+               && std::abs(m.b) < 1e-9 && std::abs(m.c) < 1e-9;
+    };
+
+    QDomElement only;
+    int count = 0;
+    for (QDomElement child = decorElement.firstChildElement(); !child.isNull();
+         child = child.nextSiblingElement())
+    {
+        only = child;
+        ++count;
+    }
+
+    QDomElement body = decorElement;
+    if (count == 1 && only.tagName() == QLatin1String("g") && HasTrace(only))
+    {
+        const Matrix own = ParseTransform(only.attribute(QStringLiteral("transform")));
+        if (isPureTranslation(own))
+        {
+            *outer = Compose(*outer, own);
+            body = only;
+        }
+    }
+
+    QVector<QDomElement> leaves;
+    for (QDomElement child = body.firstChildElement(); !child.isNull();
+         child = child.nextSiblingElement())
+    {
+        leaves.append(child);
+    }
+    return leaves;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+/// The same decor, **re-laid on the other side of the piece — its children moved, never reflected.**
+///
+/// A piece cut on the fold is planned twice: as it is drawn, and mirrored. Its outline, its ink, its
+/// fold line and its grain line all follow — the children it carries did not, and a cartouche, a
+/// miniature and a set of annotations stayed where the unmirrored piece would put them.
+///
+/// ⚠️ **A plain reflection would move them AND mirror their glyphs, which is unreadable.** So each
+/// child is re-laid instead: it keeps its own drawing, and only its placement is reflected. The
+/// reflection of a placement is written per child, in the child's OWN frame, as
+///
+///     X = B · M · F · M⁻¹        with  B  the shift and the mirror,   M  the child's own transform,
+///                                      F  the reflection about the child's own box centre.
+///
+/// whose linear part is `F · R(θ) · F = R(−θ)`: the box lands mirrored, the angle is NEGATED, and the
+/// determinant stays +1 — the glyphs are never flipped. This is Ostara's own rule
+/// (`MirrorDecor`, `oexportcanvas.cpp`), and it degenerates to a plain translation for a child drawn
+/// without rotation.
+///
+/// ⚠️ **Two children are the exception, and both are told apart by their own marker.** The grain line
+/// and the fold mark carry `ostara:grain` / `ostara:fold`: they are GEOMETRY, they hold no glyph, and
+/// they are therefore REFLECTED — a translation would leave their arrows pointing the way they pointed
+/// on the piece's other side, which is a fold mark that sits right and says the opposite. Everything
+/// else is re-laid.
+///
+/// ⚠️ **One child keeps its angle instead of negating it, and it cannot be helped.** The fold's
+/// caption is written as a path whose glyphs are already turned in the coordinates — its rotation is
+/// not recoverable from the file, only the box it occupies. It therefore MOVES with the mirror and
+/// keeps reading the way it read, which is what the requirement asks for and is the most a reader can
+/// honour.
+///
+/// @param decorElement the `<decor>` of the payload
+/// @param alignDelta   the offset the sizes of one piece are aligned by — applied BEFORE the mirror,
+///                     as it is to the contour
+/// @param axisX        the vertical line the twin was reflected about
+auto ReadMirroredDecor(const QDomElement &decorElement, const QPointF &alignDelta, double axisX,
+                       PieceDecor *out) -> bool
+{
+    if (out == nullptr || decorElement.isNull())
+    {
+        return false;
+    }
+
+    const Matrix place = Compose(Reflected(axisX), Shifted(alignDelta));
+
+    // The projection wrapper is folded into `place` here, so every leaf below is re-laid in the one
+    // frame the twin's outline lives in.
+    Matrix outer = place;
+    const QVector<QDomElement> leaves = DecorLeaves(decorElement, &outer);
+
+    QString content;
+    QXmlStreamWriter writer(&content);
+    GrowingBox box;
+
+    // ⚠️ A trace is a path with the marker — but it may arrive wrapped in a translation of its own,
+    // which is why this asks the subtree and not the element. A wrapped trace is REFLECTED as a whole,
+    // wrapper included, so the mark and the placement it was written with move together.
+    const auto isTrace = [](const QDomElement &element) { return HasTrace(element); };
+
+    for (const QDomElement &child : leaves)
+    {
+        const Matrix own = ParseTransform(child.attribute(QStringLiteral("transform")));
+
+        Matrix inverse;
+        if (!Inverted(own, &inverse))
+        {
+            return false;
+        }
+
+        GrowingBox local;
+        DecorBox(child, Matrix{}, &local, /*skipOwnTransform=*/true);
+        const QRectF localRect = local.Rect();
+        const double centre = localRect.isNull() ? 0.0 : localRect.center().x();
+
+        // F: reflect about the child's own box centre, in its own frame.
+        const Matrix flip = Compose(Shifted(QPointF(2.0 * centre, 0.0)), FlipX());
+
+        // ⚠️ **A grain line and a fold mark are REFLECTED, not re-laid.** They carry no glyph, and a
+        // translation would leave their ARROWS pointing the way they pointed on the other side — the
+        // mark would sit in the right place and say the wrong thing. Ostara never has the problem
+        // because it draws them from the piece it has already mirrored.
+        Matrix step = outer;
+        if (!isTrace(child))
+        {
+            step = Compose(step, own);
+            step = Compose(step, flip);
+            step = Compose(step, inverse);
+        }
+
+        writer.writeStartElement(QStringLiteral("g"));
+        writer.writeAttribute(QStringLiteral("transform"), MatrixAttr(step));
+        WriteNode(writer, child);
+        writer.writeEndElement();
+    }
+
+    for (QDomElement child = decorElement.firstChildElement(); !child.isNull();
+         child = child.nextSiblingElement())
+    {
+        DecorBox(child, Matrix{}, &box);
+    }
+
+    if (content.isEmpty() || box.Rect().isNull())
+    {
+        return false;
+    }
+
+    const QRectF raw = box.Rect();
+    const QRectF placed = raw.translated(alignDelta);
+    out->content = content;
+    // The box is the SVG's viewBox, so it travels with the content: mirrored about the same axis,
+    // same width and height.
+    out->box = QRectF(2.0 * axisX - placed.right(), placed.top(), placed.width(), placed.height());
+    return true;
+}
+
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
@@ -535,15 +789,9 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // A grouped member carries none of its own — Graded and Details both hand its decor to the group
     // — so the group's block is read first and stands in for every member that lacks one.
     QHash<QString, PieceDecor> groupDecor;
-    for (QDomElement group = pieces.firstChildElement(QStringLiteral("group")); !group.isNull();
-         group = group.nextSiblingElement(QStringLiteral("group")))
-    {
-        PieceDecor one;
-        if (ReadDecor(group.firstChildElement(QStringLiteral("decor")), &one))
-        {
-            groupDecor.insert(group.attribute(QStringLiteral("id")), one);
-        }
-    }
+    // The element the block came from, kept for the same reason the block is: a twin of a grouped
+    // member is re-laid from the DRAWING, and only the element can be re-laid — a reading is one answer.
+    QHash<QString, QDomElement> groupDecorSource;
 
     // One plan per size, as Ostara does it: a cutting plan is laid for one size, and asking for
     // three gives three plans, not one plan over three sizes.
@@ -560,6 +808,77 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             referenceLabel = pieceSize;
             break;
         }
+    }
+
+    // ── Le repère d'un groupe ───────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ **A group's children are not written in the pieces' frame, and placing them with a piece is
+    // what sent them off the canvas.** Ostara writes them in a frame of the group's own, whose ORIGIN
+    // is the top-left of the union of its members' boxes — said by the canvas itself, which brings the
+    // members' boxes in by exactly that translation before building the children (`oexportcanvas.cpp`,
+    // « the origin is the union's top-left corner »). A piece's block needs no such thing because the
+    // payload projects it onto the piece; a group's is written once and projected nowhere.
+    //
+    // The union is taken at the REFERENCE size, and taken here because the group is written once: a
+    // translation per size would claim the block had been re-seated per size, and it has not.
+    QHash<QString, QPointF> groupOrigin;
+    {
+        QHash<QString, QRectF> unions;
+        for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
+             !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
+        {
+            const QString groupId = element.attribute(QStringLiteral("group"));
+            if (groupId.isEmpty())
+            {
+                continue;
+            }
+
+            const QString pieceSize = element.attribute(QStringLiteral("size"));
+            if (!referenceLabel.isEmpty() && pieceSize != referenceLabel)
+            {
+                continue;
+            }
+
+            const QVector<QPointF> outline = Outline(element.attribute(QStringLiteral("outline")));
+            if (outline.size() < 3)
+            {
+                continue;
+            }
+
+            const QRectF box = QPolygonF(outline).boundingRect();
+            unions[groupId] = unions.contains(groupId) ? unions.value(groupId).united(box) : box;
+        }
+
+        for (auto it = unions.cbegin(); it != unions.cend(); ++it)
+        {
+            groupOrigin.insert(it.key(), it.value().topLeft());
+        }
+    }
+
+    for (QDomElement group = pieces.firstChildElement(QStringLiteral("group")); !group.isNull();
+         group = group.nextSiblingElement(QStringLiteral("group")))
+    {
+        const QString id = group.attribute(QStringLiteral("id"));
+        PieceDecor one;
+        const QDomElement element = group.firstChildElement(QStringLiteral("decor"));
+        if (!ReadDecor(element, &one))
+        {
+            continue;
+        }
+
+        // Into the frame the outlines are written in, by the very translation the canvas applies.
+        const QPointF origin = groupOrigin.value(id);
+        if (!origin.isNull())
+        {
+            one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
+                              .arg(QString::number(origin.x(), 'f', 3),
+                                   QString::number(origin.y(), 'f', 3))
+                          + one.content + QStringLiteral("</g>");
+            one.box.translate(origin);
+        }
+
+        groupDecor.insert(id, one);
+        groupDecorSource.insert(id, element);
     }
 
     for (const QString &sizeId : sizeIds)
@@ -698,12 +1017,26 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 Numbers(element.attribute(QStringLiteral("grainLine")));
             // Its own children, or its group's — the payload states which by carrying them (or not).
             // Filed under THIS size, because the payload seats the drawing on each size separately.
+            // Where the block actually came from: the piece's own `<decor>`, or its group's. A twin is
+            // re-laid from this element, and a member's own block and its group's are not the same
+            // drawing. Declared here because the twin is built after this scope closes.
+            QDomElement decorSource = element.firstChildElement(QStringLiteral("decor"));
+            // What the block has to travel before it is in the piece's frame: the group's own origin
+            // when the block is the group's, and nothing when it is the piece's.
+            QPointF decorShift;
             {
                 PieceDecor one;
-                const QDomElement own = element.firstChildElement(QStringLiteral("decor"));
+                const QDomElement own = decorSource;
+                const QString groupId = element.attribute(QStringLiteral("group"));
                 if (!ReadDecor(own, &one))
                 {
-                    one = groupDecor.value(element.attribute(QStringLiteral("group")));
+                    one = groupDecor.value(groupId);
+                    decorSource = groupDecorSource.value(groupId);
+                    // ⚠️ The BLOCK is already in the outlines' frame — the group's origin was carried
+                    // into it once, when the group was read. The ELEMENT is not: a twin is re-laid from
+                    // the drawing, which is still in the group's own frame, so the origin travels with
+                    // it separately.
+                    decorShift = groupOrigin.value(groupId);
                 }
                 if (!one.content.isEmpty())
                 {
@@ -819,6 +1152,19 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                         twin.grainA = QPointF(2.0 * axisX - one.grainA.x(), one.grainA.y());
                         twin.grainB = QPointF(2.0 * axisX - one.grainB.x(), one.grainB.y());
                     }
+
+                    // ⚠️ **The children follow too, and each twin carries its OWN block.** They cannot
+                    // share the piece's: the drawing's children are hung in the piece's frame, which a
+                    // reflection of the outline never reaches — so the cartouche, the miniature and the
+                    // annotations would stay on the side the outline has just left. Filed under the
+                    // twin's key, because a pose and its twin are two drawings of one piece and the
+                    // plan looks a block up by the key it lays.
+                    PieceDecor mirroredOne;
+                    if (ReadMirroredDecor(decorSource, alignDelta + decorShift, axisX, &mirroredOne))
+                    {
+                        size.decor.insert(twin.key, mirroredOne);
+                    }
+
                     size.poses.append(twin);
                 }
             }

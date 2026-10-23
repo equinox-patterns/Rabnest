@@ -109,7 +109,7 @@ auto RenderPlan(const CutPlan &plan, const QString &path) -> bool
         painter.setBrush(QColor(0xF7, 0xF5, 0xF2));
         painter.drawPath(shape);
 
-        const PieceDecor decor = plan.decor.value(pose.name);
+        const PieceDecor decor = DecorFor(plan.decor, pose);
         if (decor.content.isEmpty())
         {
             continue;
@@ -195,7 +195,8 @@ int main(int argc, char *argv[])
     for (int index = 3; index < arguments.size(); ++index)
     {
         const QString argument = arguments.at(index);
-        if (argument == QStringLiteral("folded") || argument == QStringLiteral("oneway"))
+        if (argument == QStringLiteral("folded") || argument == QStringLiteral("oneway")
+            || argument.startsWith(QStringLiteral("--png=")))
         {
             continue;
         }
@@ -220,6 +221,10 @@ int main(int argc, char *argv[])
     out << "laize " << request.BinWidthCm() << " cm"
         << (request.foldedFabric ? " (plié)" : "") << (request.oneWay ? " (sens unique)" : "")
         << "\n";
+
+    // A plan is judged, not described: a fold line that does not land on a fold of the cloth makes
+    // the whole run a failure, whatever else looks right.
+    int offTheFold = 0;
 
     for (const QString &sizeId : sizes)
     {
@@ -331,40 +336,44 @@ int main(int argc, char *argv[])
                 }
             }
 
-            // A piece cut on the fold is glued to the fold, and the fold is the left wall of the
-            // column: its leftmost point has to sit on zero. Anything else is the piece laid in the
-            // middle of the cloth, which is the defect this whole route exists for.
+            // ── Le trait de pli, vérifié et non raconté ────────────────────────────────────────
+            //
+            // A piece cut on the fold is only right if its own fold LINE lies on a fold of the
+            // cloth — the two long edges of a folded strip, and nothing else. Printing the figure
+            // proved nothing: the piece was laid against the selvedge, its fold line in the middle of
+            // the cloth, and the plan looked finished. So the figure is now TESTED, and a misplaced
+            // fold line fails the run.
+            constexpr double kFoldTolerancePx = 0.5;
             for (std::size_t index = 0; index < plan.poses.size() && index < placed.size(); ++index)
             {
-                if (!plan.poses.at(static_cast<int>(index)).onFold)
+                const CutPiece &pose = plan.poses.at(static_cast<int>(index));
+                if (!pose.onFold)
                 {
                     continue;
                 }
 
-                int64_t low = placed.at(index).front().x;
-                int64_t high = low;
-                for (const auto &point : placed.at(index))
-                {
-                    low = std::min(low, point.x);
-                    high = std::max(high, point.x);
-                }
-                // The proof that matters: the fold LINE — not just some edge — has to land on a
-                // fold of the cloth after the transformation the drawing uses.
-                const CutPiece &pose = plan.poses.at(static_cast<int>(index));
                 const Placement &placement = plan.placements.at(index);
                 const QPointF origin = plan.origins.at(static_cast<int>(index));
                 const QPointF a = PlacedPoint(pose.foldA, placement, origin);
                 const QPointF b = PlacedPoint(pose.foldB, placement, origin);
 
-                const double cm = kScale * (96.0 / 2.54);
-                out << "      ligne de pli : x = "
-                    << (a.x() - b.x()) / (96.0 / 2.54) << " d'écart, à "
-                    << a.x() / (96.0 / 2.54) << " cm\n";
+                const double toLeftEdge = std::abs(a.x());
+                const double toRightEdge = std::abs(a.x() - plan.binWidthPx);
+                const double nearest = std::min(toLeftEdge, toRightEdge);
+                // The fold line also has to be SQUARE to the edge it lands on: a fold line tilted by
+                // a degree would sit on the fold at one end and be a centimetre off at the other.
+                const bool square = std::abs(a.x() - b.x()) <= kFoldTolerancePx;
+                const bool onAFold = nearest <= kFoldTolerancePx && square;
 
-                out << "      au pli : " << plan.poses.at(static_cast<int>(index)).name
-                    << " — x de " << static_cast<double>(low) / cm << " à "
-                    << static_cast<double>(high) / cm << " cm"
-                    << " (bord droit du tissu : " << plan.binWidthPx / (96.0 / 2.54) << " cm)\n";
+                const double cm = 96.0 / 2.54;
+                out << "      pli " << pose.name << " : x = " << a.x() / cm << " cm"
+                    << " (écart au pli le plus proche : " << nearest << " px)"
+                    << (onAFold ? " OK" : "  ⚠ HORS DU PLI") << "\n";
+
+                if (!onAFold)
+                {
+                    ++offTheFold;
+                }
             }
 
             // Où le décor se situe par rapport à la pièce, dans le même repère : boîte du polygone
@@ -372,7 +381,7 @@ int main(int argc, char *argv[])
             for (int index = 0; index < plan.poses.size(); ++index)
             {
                 const CutPiece &pose = plan.poses.at(index);
-                const PieceDecor decor = plan.decor.value(pose.name);
+                const PieceDecor decor = DecorFor(plan.decor, pose);
                 if (decor.content.isEmpty())
                 {
                     continue;
@@ -432,7 +441,7 @@ int main(int argc, char *argv[])
             // voit un facteur d'échelle que personne n'a demandé.
             for (int index = 0; index < plan.poses.size(); ++index)
             {
-                const PieceDecor decor = plan.decor.value(plan.poses.at(index).name);
+                const PieceDecor decor = DecorFor(plan.decor, plan.poses.at(index));
                 if (decor.content.isEmpty())
                 {
                     continue;
@@ -464,6 +473,13 @@ int main(int argc, char *argv[])
                 << ", chevauchements " << overlaps
                 << (outside ? ", HORS DU TISSU" : "") << "\n";
         }
+    }
+
+    if (offTheFold > 0)
+    {
+        QTextStream(stderr) << "ECHEC : " << offTheFold
+                            << " trait(s) de pli ne tombent pas sur un pli du tissu.\n";
+        return 1;
     }
 
     return 0;

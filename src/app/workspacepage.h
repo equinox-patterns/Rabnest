@@ -37,6 +37,7 @@
 
 class QGraphicsScene;
 class QGraphicsView;
+class QPainter;
 class QLabel;
 class QListWidget;
 
@@ -50,6 +51,10 @@ class WorkspacePage : public QWidget
     Q_OBJECT
 
 public:
+    /// The thinnest a piece's stroke may be drawn on SCREEN, in scene pixels: one, so a plan fitted
+    /// to the window — about a fifth of its size — is still drawn rather than guessed at.
+    static constexpr double kLineFloorPx = 1.0;
+
     explicit WorkspacePage(QWidget *parent = nullptr);
 
     /// Shows one plan, and nothing else: the list of them is the dock's, not the canvas's.
@@ -81,6 +86,21 @@ public:
     /// A blank canvas — « back to home » leaves nothing of the PDF on screen.
     void Clear();
 
+    /// The plan as a FILE is made: the scene drawn from @p sourcePx into @p targetPx.
+    ///
+    /// **The drawing is the panel's, and only the scale changes.** The canvas draws pieces with a
+    /// stroke whose thickness follows the zoom — see `PatternPen` — so a file, drawn at another
+    /// scale, must re-lay that thickness for its own before rendering, and put the view's back
+    /// afterwards. That is the whole reason this lives here and not in the writer.
+    ///
+    /// @param sourcePx the plan's own rectangle, never `sceneRect`: the twenty pixels of margin
+    ///        around the drawing are a margin of the VIEW, and a file that carried them would grow a
+    ///        white border nobody asked for
+    /// @param floorPx the thinnest a stroke may be drawn, in SCENE pixels — one on screen, a length
+    ///        in millimetres on paper, where a device pixel is a quarter of a hair
+    void RenderPlan(QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx,
+                    double floorPx = kLineFloorPx);
+
     /// The zoom of the canvas, in steps around what is on screen.
     ///
     /// **A step, not a factor of the plan.** Zooming does not re-lay anything: it changes how the
@@ -91,6 +111,14 @@ public:
 private:
     void Draw(const CutPlan &plan);
     void ZoomBy(double factor);
+
+    /// Re-lays every piece's stroke for the zoom the view is at — see @ref PatternPen. Called after
+    /// anything that moves the view's transform, and never on a timer: a stroke one frame behind the
+    /// wheel is a stroke that thins out while the hand is still turning it.
+    void RefreshLineWidth();
+
+    /// The same, for a scale that is not the view's — a file being written, a page being printed.
+    void RefreshLineWidth(double scale, double floor);
 
     QGraphicsView *m_view = nullptr;
     QGraphicsScene *m_scene = nullptr;

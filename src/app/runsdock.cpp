@@ -55,17 +55,6 @@ enum Column
 };
 
 //---------------------------------------------------------------------------------------------------------------------
-/// What an output is called: its size, and the kind of plan it is.
-///
-/// **The size alone is not a name.** Two outputs of the same size on two cloths are two different
-/// answers, and both are called « Taille 46 - Cut » — that is deliberate: the dock is a list of
-/// what she ASKED FOR, and what differs between them is a setting, which is exactly what the
-/// information dialogue exists to show.
-auto OutputName(const CutPlan &plan) -> QString
-{
-    return QObject::tr("%1 - Cut").arg(plan.sizeLabel);
-}
-
 //---------------------------------------------------------------------------------------------------------------------
 /// One icon that knows both of its faces: the theme's, and the DARK one for a lit row.
 ///
@@ -130,6 +119,17 @@ auto MakeIconButton(const QString &baseName, const QString &text, QWidget *paren
     return button;
 }
 }  // namespace
+
+/// What an output is called: its size, and the kind of plan it is.
+///
+/// **The size alone is not a name.** Two outputs of the same size on two cloths are two different
+/// answers, and both are called « Taille 46 - Cut » — that is deliberate: the dock is a list of
+/// what she ASKED FOR, and what differs between them is a setting, which is exactly what the
+/// information dialogue exists to show.
+auto RunsDock::Name(const CutPlan &plan) -> QString
+{
+    return QObject::tr("%1 - Cut").arg(plan.sizeLabel);
+}
 
 //---------------------------------------------------------------------------------------------------------------------
 RunsDock::RunsDock(QWidget *parent)
@@ -267,9 +267,9 @@ void RunsDock::AddRun(const CutPlan &plan)
     m_table->insertRow(row);
     m_table->setRowHeight(row, kRowHeight);
 
-    auto *name = new QTableWidgetItem(OutputName(plan));
+    auto *name = new QTableWidgetItem(RunsDock::Name(plan));
     name->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-    name->setToolTip(plan.ok ? OutputName(plan) : plan.error);
+    name->setToolTip(plan.ok ? RunsDock::Name(plan) : plan.error);
     m_table->setItem(row, kName, name);
 
     struct Action
@@ -283,7 +283,7 @@ void RunsDock::AddRun(const CutPlan &plan)
         {kInfo, QStringLiteral("info"), tr("What this output was asked for")},
         // The two that are not wired yet say so, in the tooltip, rather than doing nothing in
         // silence when pressed.
-        {kExport, QStringLiteral("download"), tr("Export (not available yet)")},
+        {kExport, QStringLiteral("download"), tr("Export this plan as an image")},
         {kPrint, QStringLiteral("printer"), tr("Print (not available yet)")},
         {kDelete, QStringLiteral("trash"), tr("Delete")}};
 

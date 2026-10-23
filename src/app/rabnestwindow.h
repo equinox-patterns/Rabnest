@@ -69,6 +69,14 @@ private:
     void Import();
     void GenerateOutput();
     void DeleteOutput(int index);
+
+    /// The dock's download icon: this output's plan as an image — the same drawing the canvas
+    /// shows, written as SVG or PNG at the size the user gives.
+    void ExportOutputToImage(int index);
+
+    /// The dock's printer icon: this output's plan on ONE sheet, shrunk to fit the paper the user
+    /// picks, with the line that says which size it is, on what cloth, and at what scale.
+    void PrintCutPlan(int index);
     void ShowOutputInfo(int index);
     void BackHome();
     void OpenOverlay(bool generateFromDocument);
@@ -106,6 +114,9 @@ private:
     /// What the last accepted journey settled: the pattern, and what she kept of it. Empty until a
     /// first import — which is what closes « lay out another plan ».
     ImportedDocument m_document;
+
+    /// The folder the last image was written to, proposed the next time. Empty until one is written.
+    QString m_exportDirectory;
     QStringList m_sizeIds;
     QStringList m_pieceIds;
 

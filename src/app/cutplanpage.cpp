@@ -29,8 +29,10 @@
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -48,6 +50,35 @@ auto CmSpin(qreal value, qreal maximum, QWidget *parent) -> QDoubleSpinBox *
     spin->setValue(value);
     return spin;
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+/// A tab that can scroll, because its height is not its own to decide.
+///
+/// ⚠️ **Without this the page is CRUSHED, not clipped.** The card the wizard lives in has a fixed
+/// height — it is capped on every side so the workspace stays visible around it — and a cutting plan
+/// asks for one line per size. Nine of them already ask for more than the card holds. A
+/// `QVBoxLayout` short of room does not overflow: it takes the space from the items that have no
+/// hard minimum, and a `QCheckBox` is one of them — its indicator is drawn 18 px high while the
+/// widget's own minimum only knows the font. The result is a size list whose icons lose their top and
+/// bottom edges, which reads as a corrupt checkbox rather than as a page that does not fit.
+///
+/// The viewport keeps a NATIVE WHITE background on macOS that no ordinary rule overrides; the dot
+/// selector is the only thing that reaches it (see `Modifications/Ostara/SubtiliteCode`, fiche 02
+/// §13). Both selectors carry the dot, so they paint what IS a scroll area or a bare widget, and
+/// leave every subclass — the spin boxes, the labels, the checkboxes — alone.
+auto Scrollable(QWidget *page, QWidget *parent) -> QScrollArea *
+{
+    auto *area = new QScrollArea(parent);
+    area->setWidgetResizable(true);
+    area->setFrameShape(QFrame::NoFrame);
+    area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    area->setWidget(page);
+
+    area->setStyleSheet(QStringLiteral(".QScrollArea { background: transparent; }"));
+    area->viewport()->setStyleSheet(QStringLiteral(".QWidget { background: transparent; }"));
+    return area;
+}
+
 }  // namespace
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -149,7 +180,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     // What does not fill the tab stays at its top, where it reads.
     cuttingLayout->addStretch(1);
 
-    tabs->addTab(cutting, tr("Cutting plan"));
+    tabs->addTab(Scrollable(cutting, tabs), tr("Cutting plan"));
 
     // ── Impression ─────────────────────────────────────────────────────────────────────────────
     auto *printPage = new QWidget(tabs);
@@ -174,7 +205,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     printLayout->addWidget(m_print);
     printLayout->addStretch(1);
 
-    tabs->addTab(printPage, tr("Print"));
+    tabs->addTab(Scrollable(printPage, tabs), tr("Print"));
 
     // ── Plotter ────────────────────────────────────────────────────────────────────────────────
     auto *plotter = new QWidget(tabs);

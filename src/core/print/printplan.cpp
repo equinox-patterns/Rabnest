@@ -294,7 +294,7 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
             drawn.onFold = pose.onFold;
             drawn.foldA = pose.foldA;
             drawn.foldB = pose.foldB;
-            drawn.decor = size.decor.value(pose.name);
+            drawn.decor = DecorFor(size.decor, pose);
             layer.pieces.append(drawn);
         }
 

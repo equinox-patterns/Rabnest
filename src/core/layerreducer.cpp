@@ -238,6 +238,8 @@ auto LayerReducer::Read(const QString &path, QString *error) -> QVector<PdfLayer
 
     static const QRegularExpression ocg(QStringLiteral("(\\d+)\\s+0\\s+obj\\s*<<[^>]*?/Type\\s*/OCG"));
     QRegularExpressionMatchIterator it = ocg.globalMatch(PdfText(pdf));
+    QHash<int, QString> nameOf;
+    QVector<int> found;
     QSet<QString> seen;
     while (it.hasNext())
     {
@@ -249,7 +251,48 @@ auto LayerReducer::Read(const QString &path, QString *error) -> QVector<PdfLayer
             continue;
         }
         seen.insert(name);
-        layers.append({number, name});
+        nameOf.insert(number, name);
+        found.append(number);
+    }
+
+    // ── L'ordre du PANNEAU, et pas celui du fichier ─────────────────────────────────────────────
+    //
+    // ⚠️ **An OCG's object number says when it was WRITTEN, never where a reader shows it.** The
+    // panel is drawn from the catalogue's `/Order` array, and the two disagree the moment a writer
+    // creates the objects in one direction and lists them in the other — which is exactly what
+    // happens here: the objects come out largest-first, `/Order` reads smallest-first, and reading
+    // them in file order listed the sizes backwards on screen.
+    //
+    // `/Order` names them by object number, and may nest arrays for grouped layers; whatever it does
+    // not name keeps its place at the end, in the order it was found. A file that states no `/Order`
+    // has no panel order to honour and keeps the order it was read in.
+    QVector<int> order;
+    static const QRegularExpression orderArray(QStringLiteral("/Order\\s*\\[([^\\]]*)\\]"));
+    const QRegularExpressionMatch ordered = orderArray.match(PdfText(pdf));
+    if (ordered.hasMatch())
+    {
+        static const QRegularExpression reference(QStringLiteral("(\\d+)\\s+0\\s+R"));
+        QRegularExpressionMatchIterator refs = reference.globalMatch(ordered.captured(1));
+        while (refs.hasNext())
+        {
+            const int number = refs.next().captured(1).toInt();
+            if (nameOf.contains(number) && !order.contains(number))
+            {
+                order.append(number);
+            }
+        }
+    }
+    for (const int number : found)
+    {
+        if (!order.contains(number))
+        {
+            order.append(number);
+        }
+    }
+
+    for (const int number : order)
+    {
+        layers.append({number, nameOf.value(number)});
     }
 
     if (layers.isEmpty() && error != nullptr)

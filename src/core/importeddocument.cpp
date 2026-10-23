@@ -35,8 +35,51 @@
 #include <QFileInfo>
 #include <QStringList>
 
+#include <algorithm>
+
 namespace
 {
+/// Sorts the size layers the way the PDF's own panel shows them.
+///
+/// ⚠️ **The payload's order is the DRAWING's order, and the panel's is the reverse of it.** Ostara
+/// writes its size layers from the largest down — the smallest size is drawn last, on top of the
+/// others — and the PDF's `/Order` lists them from the top down, so a reader's panel shows the
+/// smallest first. Rabnest read the drawing and called it the list, so the sizes came out backwards
+/// against the very file she had just exported.
+///
+/// The panel's order is READ FROM THE PDF, never guessed by reversing the payload: two files can
+/// disagree, and only one of them is on screen. A layer the panel does not name keeps its place at
+/// the end, in the order it was read.
+auto InPanelOrder(QVector<ImportedLayer> *layers, const QStringList &order) -> void
+{
+    if (layers == nullptr || order.isEmpty())
+    {
+        return;
+    }
+
+    QHash<QString, int> rank;
+    for (int index = 0; index < order.size(); ++index)
+    {
+        rank.insert(order.at(index), index);
+    }
+    const int unknown = order.size();
+
+    std::stable_sort(layers->begin(), layers->end(),
+                     [&rank, unknown](const ImportedLayer &one, const ImportedLayer &other) {
+                         return rank.value(one.label, unknown) < rank.value(other.label, unknown);
+                     });
+}
+
+/// The names the panel shows, in the order it shows them.
+auto PanelOrder(const QString &path) -> QStringList
+{
+    QStringList names;
+    for (const PdfLayer &layer : LayerReducer::Read(path, nullptr))
+    {
+        names.append(layer.name);
+    }
+    return names;
+}
 /// The namespace the markers live in, and the two attribute names Rabnest reads.
 ///
 /// Only two of Ostara's own attributes matter here, and both are read as PLAIN names: the payload
@@ -138,6 +181,10 @@ auto ImportedDocument::Read(const QString &path) -> ImportedDocument
 
     document.m_kind = Kind::Ostara;
     document.ParsePayload();
+
+    // The payload says which layers there are; the PDF says in which ORDER a reader sees them.
+    InPanelOrder(&document.m_layers, PanelOrder(path));
+
     return document;
 }
 

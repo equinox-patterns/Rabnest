@@ -56,6 +56,42 @@ constexpr double kCmPerPx = 2.54 / 96.0;
 constexpr double kScale = 1000000.0;
 constexpr double kMmPerPx = 25.4 / 96.0;
 
+/// The width of a piece's line, in scene pixels — the thickness it has at 100 %, and the thickness it
+/// keeps when the view is enlarged. The floor is the SCREEN's; `WorkspacePage::kLineFloorPx` states it
+/// once, because a page passes its own.
+constexpr double kLinePx = WorkspacePage::kLineFloorPx;
+
+//---------------------------------------------------------------------------------------------------------------------
+/// The pen a piece is drawn with, **at the zoom the view is at.**
+///
+/// ⚠️ **A cosmetic pen is one DEVICE pixel whatever the zoom, and that is the defect it looks like a
+/// fix for.** Zooming in enlarges the piece and leaves its line a single pixel wide, so the outline
+/// gets thinner and thinner while the cartouche it carries — an SVG, which scales — keeps growing; a
+/// pattern at 400 % reads as a hairline drawing in a thick frame. The line therefore follows the zoom,
+/// as ink on paper would.
+///
+/// ⚠️ **With ONE floor, and the floor is a LENGTH on the paper.** A plan fitted to the window is
+/// drawn at about a fifth of its size, and a line of a fifth of a pixel is not a thin line, it is no
+/// line at all. What is drawn is therefore either the pattern's own thickness or the floor, never
+/// less.
+///
+/// ⚠️ **And the floor is the CALLER's, because a screen and a printer do not measure alike.** A
+/// device pixel is 0.26 mm on a screen at 96 dpi and 0.04 mm on a printer at 600 — a floor written in
+/// pixels that keeps a plan visible on screen prints it as a ghost. A page passes a length instead.
+///
+/// ⚠️ **In SCENE units, never cosmetic.** A cosmetic pen's width is in device pixels, which the item
+/// knows nothing of: `QGraphicsPathItem::boundingRect()` counts the stroke from the pen's width, so a
+/// cosmetic pen leaves the stroke outside the area the scene repaints — trails behind a zoomed stroke.
+/// The width is kept in scene units and refreshed whenever the zoom moves, which is what makes the
+/// bounding rect — and the dashes, which count in pen widths — right on their own.
+auto PatternPen(const QPen &base, double viewScale, double floor) -> QPen
+{
+    QPen pen = base;
+    pen.setCosmetic(false);
+    pen.setWidthF(viewScale > 0.0 ? std::max(1.0 / viewScale, floor) : floor);
+    return pen;
+}
+
 //---------------------------------------------------------------------------------------------------------------------
 /// The piece's own drawing as a document of its own, sized to its own box — so one unit is one pixel
 /// and the placement of the piece can be applied to it as a transform, without a scaling of its own.
@@ -93,6 +129,91 @@ auto SvgDocument(const PieceDecor &decor, bool oneInk) -> QByteArray
 
     return svg.toUtf8();
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+/// A piece's line, whose thickness follows the ZOOM — see @ref PatternPen.
+///
+/// It keeps the pen it was written with and re-lays only its WIDTH: the pattern is the payload's (a
+/// dash pattern counts in pen widths, so it scales with the line), the thickness is the view's.
+class PatternPathItem : public QGraphicsPathItem
+{
+public:
+    PatternPathItem(const QPainterPath &shape, const QPen &pen)
+      : QGraphicsPathItem(shape), m_pen(pen)
+    {
+        QGraphicsPathItem::setBrush(Qt::NoBrush);
+        QGraphicsPathItem::setPen(pen);
+    }
+
+    /// The stroke, sized for @p viewScale — the scene unit in device pixels.
+    ///
+    /// ⚠️ **Only when the width actually changes.** Setting a pen tears down the item's paint cache and
+    /// asks for a repaint, and this is called on every step of the zoom over every piece of the plan.
+    virtual void SetViewScale(double viewScale, double floor = WorkspacePage::kLineFloorPx)
+    {
+        const QPen next = PatternPen(m_pen, viewScale, floor);
+        if (std::abs(pen().widthF() - next.widthF()) < 1e-6)
+        {
+            return;
+        }
+        QGraphicsPathItem::setPen(next);
+    }
+
+private:
+    QPen m_pen;
+};
+
+//---------------------------------------------------------------------------------------------------------------------
+/// The guide that says where the cloth is folded. **Big dashes, at half black, whatever the zoom.**
+///
+/// ⚠️ **A fold zone is not a piece and must not look like one.** It says where the cloth was folded
+/// before cutting — one rectangle, or three when the cloth was folded from both selvedges and the
+/// two bands sit above a column. Drawn as a light hairline it was invisible: a cosmetic pen is one
+/// DEVICE pixel, a twentieth of a millimetre on a sheet at 1200 dpi, in a grey lighter than the
+/// paper. She could not see it, so nobody could read the plan.
+///
+/// ⚠️ **The dashes are counted in SCENE units, never in pen widths.** Qt's own dash patterns are
+/// multiples of the stroke, so a guide whose stroke follows the zoom would have dashes that shrink
+/// with it — and a plan printed at 1:5,6 has a stroke four times thinner than on screen. Here the
+/// dash measures the same slice of the DRAWING at every scale, which is what makes it readable both
+/// on screen and on paper.
+class FoldGuideItem : public PatternPathItem
+{
+public:
+    /// @param pattern the dash and gap lengths, in scene pixels, in Qt's own order (on, off, …)
+    FoldGuideItem(const QPainterPath &shape, const QPen &pen, QVector<qreal> pattern)
+      : PatternPathItem(shape, pen), m_scenePattern(std::move(pattern))
+    {
+    }
+
+    void SetViewScale(double viewScale, double floor = WorkspacePage::kLineFloorPx) override
+    {
+        PatternPathItem::SetViewScale(viewScale, floor);
+
+        // Qt counts a dash in widths of the pen it is drawn with, so the figure has to be divided by
+        // the width the pen actually got — one scene pixel at 100 %, five when the plan is fitted.
+        const double width = QGraphicsPathItem::pen().widthF();
+        if (width <= 0.0 || m_scenePattern.isEmpty())
+        {
+            return;
+        }
+
+        QVector<qreal> pattern;
+        pattern.reserve(m_scenePattern.size());
+        for (const qreal length : m_scenePattern)
+        {
+            pattern.append(length / width);
+        }
+
+        QPen pen = QGraphicsPathItem::pen();
+        pen.setStyle(Qt::CustomDashLine);
+        pen.setDashPattern(pattern);
+        QGraphicsPathItem::setPen(pen);
+    }
+
+private:
+    QVector<qreal> m_scenePattern;
+};
 
 //---------------------------------------------------------------------------------------------------------------------
 auto Cm(double millimetres) -> QString
@@ -239,6 +360,61 @@ void WorkspacePage::ZoomBy(double factor)
     const QPointF after = m_view->mapToScene(viewportCentre);
     const QPointF delta = after - before;
     m_view->translate(delta.x(), delta.y());
+
+    RefreshLineWidth();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RefreshLineWidth()
+{
+    if (m_view == nullptr || m_scene == nullptr)
+    {
+        return;
+    }
+
+    // The scene unit in device pixels. `m11`/`m12` and not `m11` alone, so a view turned by half a
+    // circle is not read as a scale of zero.
+    const QTransform transform = m_view->transform();
+    RefreshLineWidth(std::hypot(transform.m11(), transform.m12()), WorkspacePage::kLineFloorPx);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RefreshLineWidth(double scale, double floor)
+{
+    if (m_scene == nullptr)
+    {
+        return;
+    }
+
+    for (QGraphicsItem *item : m_scene->items())
+    {
+        if (auto *path = dynamic_cast<PatternPathItem *>(item); path != nullptr)
+        {
+            path->SetViewScale(scale, floor);
+        }
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RenderPlan(QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx,
+                              double floorPx)
+{
+    if (painter == nullptr || m_scene == nullptr || sourcePx.isEmpty() || targetPx.isEmpty())
+    {
+        return;
+    }
+
+    // How many device pixels one scene pixel becomes in the file — the scale the strokes must be
+    // sized for.
+    const double scale = targetPx.width() / sourcePx.width();
+
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter->setFont(m_scene->font());
+
+    RefreshLineWidth(scale, floorPx);
+    m_scene->render(painter, targetPx, sourcePx, Qt::IgnoreAspectRatio);
+    RefreshLineWidth();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -264,22 +440,32 @@ void WorkspacePage::Draw(const CutPlan &plan)
     const QBrush clothBrush(QColor(0xF7, 0xF5, 0xF2));
     m_scene->addRect(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx), border, clothBrush);
 
-    // The fold, in dashes: the one thing a folded plan has to show, because a piece glued to that
-    // edge is cut ON the fold and not through it.
-    QPen fold(QColor(0x9A, 0x9A, 0x9A), 0.0, Qt::DashLine);
-    fold.setCosmetic(true);
+    // ── Le pli ──────────────────────────────────────────────────────────────────────────────────
+    //
+    // The one thing a folded plan has to show, because a piece glued to that edge is cut ON the fold
+    // and not through it. **Black at half, in big dashes**, and drawn by an item that follows the
+    // zoom: a light hairline said nothing on screen and nothing at all on paper — see FoldGuideItem.
+    //
+    // The dash lengths are the DRAWING's, in scene pixels: a plan of 6047 pixels is 1,6 m of cloth, so
+    // 56 px is a centimetre and a half of real fabric — about ten screen pixels when the plan is
+    // fitted to the window, and two and a half millimetres once it is shrunk onto a sheet.
+    const QPen foldZonePen(QColor(0, 0, 0, 128));
     for (const FoldZone &zone : plan.zones)
     {
-        m_scene->addRect(zone.rect, fold, QBrush(Qt::NoBrush));
+        QPainterPath outline;
+        outline.addRect(zone.rect);
+        m_scene->addItem(new FoldGuideItem(outline, foldZonePen, {56.0, 32.0}));
 
         const double x = zone.foldOnTheLeft ? zone.rect.left() : zone.rect.right();
-        m_scene->addLine(QLineF(x, zone.rect.top(), x, zone.rect.bottom()),
-                         QPen(QColor(0x7A, 0x7A, 0x7A), 0.0, Qt::DashDotLine));
+        QPainterPath axis;
+        axis.moveTo(x, zone.rect.top());
+        axis.lineTo(x, zone.rect.bottom());
+        m_scene->addItem(new FoldGuideItem(axis, foldZonePen, {32.0, 16.0, 2.0, 16.0}));
     }
 
+    // Its WIDTH is not set here: the zoom decides it, and `RefreshLineWidth` writes it after the
+    // view has been fitted. Setting it once would be setting it for one zoom only.
     QPen piecePen(QColor(0x2B, 0x2B, 0x2B));
-    piecePen.setCosmetic(true);
-    const QBrush pieceBrush(Qt::NoBrush);
 
     const int count =
         std::min(static_cast<int>(plan.placements.size()), static_cast<int>(plan.footprint.polygons.size()));
@@ -314,7 +500,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
                 plan.footprint.polygons.at(static_cast<size_t>(index)), placement, origin));
         }
 
-        m_scene->addPath(shape, piecePen, pieceBrush);
+        m_scene->addItem(new PatternPathItem(shape, piecePen));
 
         // ── Le décor de la pièce ────────────────────────────────────────────────────────────────
         //
@@ -323,7 +509,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
         // they are in the pattern's frame with one placement matrix above them, and that matrix is
         // dropped at read time. So all that is left is to lay them with the piece: the same
         // translation, the same rotation, and the offset of their own box.
-        const PieceDecor decor = plan.decor.value(pose.name);
+        const PieceDecor decor = DecorFor(plan.decor, pose);
         if (!decor.content.isEmpty())
         {
             auto *renderer = new QSvgRenderer(SvgDocument(decor, /*oneInk=*/true), m_scene);
@@ -370,6 +556,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
     m_scene->setSceneRect(
         QRectF(-20.0, -20.0, plan.binWidthPx + 40.0, plan.usedHeightPx + 40.0));
     m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
+    RefreshLineWidth();
 
     // The same line Ostara writes under its cut plan: the cloth in the unit it is bought in, then the
     // same two figures in the units somebody else buys it in — inches for the width, yards for the
@@ -406,11 +593,12 @@ void WorkspacePage::Draw(const CutPlan &plan)
 /// The move is applied on RELEASE, not while dragging: the sheets have to be read again when the
 /// piece has landed, and reading them mid-gesture would rebuild the scene under the hand that is
 /// still holding it.
-class PrintPieceItem : public QGraphicsPathItem
+class PrintPieceItem : public PatternPathItem
 {
 public:
-    PrintPieceItem(const QPainterPath &shape, int placementIndex, WorkspacePage *page)
-      : QGraphicsPathItem(shape), m_placementIndex(placementIndex), m_page(page)
+    PrintPieceItem(const QPainterPath &shape, const QPen &pen, int placementIndex,
+                   WorkspacePage *page)
+      : PatternPathItem(shape, pen), m_placementIndex(placementIndex), m_page(page)
     {
         setFlag(QGraphicsItem::ItemIsMovable, true);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
@@ -538,7 +726,6 @@ void WorkspacePage::RedrawPrint()
     // **No fill.** A printed plan is a drawing of the pieces, not a plan of the cloth: Ostara's
     // print canvas paints the outlines and nothing inside them — the coloured fill belongs to the
     // cutting plan, where a piece is something to cut out.
-    const QBrush pieceBrush(Qt::NoBrush);
 
     for (int layerIndex = 0; layerIndex < plan.layers.size(); ++layerIndex)
     {
@@ -555,8 +742,8 @@ void WorkspacePage::RedrawPrint()
         // The size's own line, as the payload drew it: its colour, and its dash pattern when it
         // has one. A Qt pattern counts in multiples of the pen width, so the pixels the SVG states
         // are divided by it — the same conversion Ostara's DashPen makes.
+        // Its width follows the zoom — see `PatternPen`.
         QPen piecePen(layer.colour);
-        piecePen.setCosmetic(true);
         if (!layer.dashes.isEmpty())
         {
             // The pen is one pixel wide, so the pattern's own pixel lengths are already the
@@ -595,9 +782,7 @@ void WorkspacePage::RedrawPrint()
                 shape.addPolygon(placed);
             }
 
-            auto *item = new PrintPieceItem(shape, piece.placementIndex, this);
-            item->setPen(piecePen);
-            item->setBrush(pieceBrush);
+            auto *item = new PrintPieceItem(shape, piecePen, piece.placementIndex, this);
             m_scene->addItem(item);
 
             // The piece's own drawing, laid by the same frame as its outline — the same rule the
@@ -643,6 +828,7 @@ void WorkspacePage::RedrawPrint()
 
     m_scene->setSceneRect(sceneRect);
     m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
+    RefreshLineWidth();
 
     // The same figures Ostara writes under a printed plan: the cloth the run takes, then the same
     // two in the units somebody else buys it in.

@@ -148,9 +148,16 @@ auto BaseKey(const QString &key) -> QString
     return key.endsWith(QLatin1String(kTwinSuffix)) ? key.left(key.size() - 2) : key;
 }
 
-auto IsTwin(const QString &key) -> bool
+//---------------------------------------------------------------------------------------------------------------------
+/// Whether a rectangle whose fold is on @p foldOnTheLeft can carry @p pose.
+///
+/// One rule, written once: a pose cut on the fold only goes where its own fold side is the
+/// rectangle's. The side comes from `Orient`, which took it from `CuttingRules::FoldAngle` — the same
+/// call Ostara makes, on the same geometry.
+auto Suits(const CutPiece &pose, bool foldOnTheLeft, const QHash<QString, bool> &foldRightByKey)
+    -> bool
 {
-    return key.endsWith(QLatin1String(kTwinSuffix));
+    return !pose.onFold || foldRightByKey.value(pose.key, false) != foldOnTheLeft;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -198,12 +205,35 @@ auto FootprintsOf(const QVector<CutPiece> &poses) -> Footprint::Result
 /// One strip of fabric, one column of pieces — the plan every flat run makes, and the one-edge
 /// folded run too.
 auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double>> &anglesByKey,
-         const QHash<QString, Anchor> &anchorByKey, bool foldedFabric, double binWidthPx,
+         const QHash<QString, bool> &foldRightByKey, bool foldedFabric, double binWidthPx,
          double marginPx, double gapPx) -> Layout
 {
     Layout layout;
 
-    layout.footprint = FootprintsOf(poses);
+    // ── Quelles formes ce rectangle peut porter ───────────────────────────────────────────────
+    //
+    // ⚠️ **La forme qui va du mauvais côté n'entre pas, même pour rien.** Ce rectangle-ci a son pli
+    // à gauche : une pièce dont le pli tombe à droite n'y est pas posée du tout, c'est son miroir qui
+    // l'est. La garder ferait deux empreintes pour une pièce — elle serait coupée deux fois — et la
+    // poser de travers mettrait son trait de pli au milieu du tissu.
+    QVector<CutPiece> laid;
+    laid.reserve(poses.size());
+    for (const CutPiece &pose : poses)
+    {
+        if (foldedFabric && !Suits(pose, true, foldRightByKey))
+        {
+            continue;
+        }
+        laid.append(pose);
+    }
+
+    if (laid.isEmpty())
+    {
+        layout.error = QObject::tr("This pattern carries no piece that can be laid on the fold.");
+        return layout;
+    }
+
+    layout.footprint = FootprintsOf(laid);
     if (layout.footprint.polygons.empty())
     {
         layout.error = QObject::tr("This pattern carries no usable contour.");
@@ -211,7 +241,7 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
     }
 
     QHash<QString, CutPiece> poseByKey;
-    for (const CutPiece &pose : poses)
+    for (const CutPiece &pose : laid)
     {
         poseByKey.insert(pose.key, pose);
     }
@@ -226,7 +256,10 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
         const CutPiece pose = poseByKey.value(key);
         layout.poses.append(pose);
         angles.push_back(anglesByKey.value(key));
-        anchors.push_back(anchorByKey.value(key, Anchor::Free));
+        // The wall belongs to the RECTANGLE, not to the piece: this one folds on its left, so a piece
+        // cut on the fold is glued to the left wall — the one place where the margin is zero and the
+        // cloth actually folds. Ostara's `ConstraintsFor` writes the same thing.
+        anchors.push_back(foldedFabric && pose.onFold ? Anchor::LeftWall : Anchor::Free);
     }
 
     for (std::size_t index = 0; index < layout.footprint.polygons.size(); ++index)
@@ -299,16 +332,17 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
 /// and every other pair its natural form to the column, whose fold is on the left like the left
 /// band's. A form only ever enters a rectangle whose fold side is its own.
 auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double>> &anglesByKey,
-              const QHash<QString, Anchor> &anchorByKey, double binWidthPx, double marginPx,
+              const QHash<QString, bool> &foldRightByKey, double binWidthPx, double marginPx,
               double gapPx) -> Layout
 {
     Layout layout;
 
-    // ── The pairs ──────────────────────────────────────────────────────────────────────────────
-    QHash<QString, CutPiece> naturals;
-    QHash<QString, CutPiece> twins;
+    // ── Les deux formes de chaque pose ────────────────────────────────────────────────────────
+    //
+    // Filed by base key, and by POSES and not by names: which of the two goes on which edge is a
+    // property of the piece (`Suits`), never of the fact that one of them is the stored form.
+    QHash<QString, QVector<CutPiece>> forms;
     QStringList order;
-
     for (const CutPiece &pose : poses)
     {
         if (!pose.onFold)
@@ -317,22 +351,32 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
         }
 
         const QString base = BaseKey(pose.key);
-        if (IsTwin(pose.key))
+        if (!forms.contains(base))
         {
-            twins.insert(base, pose);
-        }
-        else
-        {
-            naturals.insert(base, pose);
             order.append(base);
         }
+        forms[base].append(pose);
     }
+
+    /// The form of @p base that a rectangle folding on @p foldOnTheLeft can carry, or nothing.
+    const auto formFor = [&foldRightByKey](const QVector<CutPiece> &candidates,
+                                           bool foldOnTheLeft) -> const CutPiece * {
+        for (const CutPiece &candidate : candidates)
+        {
+            if (Suits(candidate, foldOnTheLeft, foldRightByKey))
+            {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    };
 
     // A band needs both forms: one for each edge. Without them there is no second edge to open.
     QStringList paired;
     for (const QString &base : order)
     {
-        if (twins.contains(base))
+        if (formFor(forms.value(base), true) != nullptr
+            && formFor(forms.value(base), false) != nullptr)
         {
             paired.append(base);
         }
@@ -349,14 +393,14 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
     };
 
     std::sort(paired.begin(), paired.end(), [&](const QString &a, const QString &b) {
-        return widthOf(naturals.value(a)) > widthOf(naturals.value(b));
+        return widthOf(*formFor(forms.value(a), true)) > widthOf(*formFor(forms.value(b), true));
     });
 
     const QString leftBase = paired.at(0);
     const QString rightBase = paired.at(1);
 
-    const double leftPieceWidth = widthOf(naturals.value(leftBase));
-    const double rightPieceWidth = widthOf(twins.value(rightBase));
+    const double leftPieceWidth = widthOf(*formFor(forms.value(leftBase), true));
+    const double rightPieceWidth = widthOf(*formFor(forms.value(rightBase), false));
 
     // Each band pays its selvedge, so the two of them cost `2 m` before a piece is laid at all.
     const double surplus = binWidthPx - (leftPieceWidth + rightPieceWidth + 2.0 * marginPx);
@@ -370,13 +414,18 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
     const double leftWidth = leftPieceWidth + marginPx + surplus / 2.0;
     const double rightWidth = binWidthPx - leftWidth;
 
+    // 0 : the left band, fold on its LEFT edge.  1 : the right band, fold on its RIGHT edge.
+    // 2 : the column under them, fold on its left — the same rectangle the one-edge plan is.
+    const bool seatFoldsOnTheLeft[3] = {true, false, true};
+
     // ── The forms this plan will lay ───────────────────────────────────────────────────────────
     //
-    // Exactly one form per piece: the natural of the left band, the mirror of the right one, and the
-    // natural of everything else — because the column's fold is on its left, like the left band's.
+    // Exactly one form per piece: the one its own fold side allows in the rectangle it lands in.
+    // Everything that cannot go there is left out — laying both forms would cut the piece twice, and
+    // laying the wrong one puts its fold line in the middle of the cloth with its selvedge on the
+    // fold, which looks like a plan.
     QVector<CutPiece> chosen;
-    QHash<QString, int> seatOfKey;  // 0 left band, 1 right band, 2 column
-
+    QHash<QString, int> seatOfKey;
     for (const CutPiece &pose : poses)
     {
         if (!pose.onFold)
@@ -387,21 +436,13 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
         }
 
         const QString base = BaseKey(pose.key);
-        if (base == leftBase && !IsTwin(pose.key))
+        const int seat = base == leftBase ? 0 : (base == rightBase ? 1 : 2);
+        if (!Suits(pose, seatFoldsOnTheLeft[seat], foldRightByKey))
         {
-            chosen.append(pose);
-            seatOfKey.insert(pose.key, 0);
+            continue;
         }
-        else if (base == rightBase && IsTwin(pose.key))
-        {
-            chosen.append(pose);
-            seatOfKey.insert(pose.key, 1);
-        }
-        else if (base != leftBase && base != rightBase && !IsTwin(pose.key))
-        {
-            chosen.append(pose);
-            seatOfKey.insert(pose.key, 2);
-        }
+        chosen.append(pose);
+        seatOfKey.insert(pose.key, seat);
     }
 
     if (chosen.isEmpty())
@@ -422,13 +463,11 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
     }
 
     std::vector<std::vector<double>> angles;
-    std::vector<Anchor> anchors;
     for (const QString &key : layout.footprint.keys)
     {
         const CutPiece pose = poseByKey.value(key);
         layout.poses.append(pose);
         angles.push_back(anglesByKey.value(key));
-        anchors.push_back(anchorByKey.value(key, Anchor::Free));
     }
 
     for (std::size_t index = 0; index < layout.footprint.polygons.size(); ++index)
@@ -438,23 +477,22 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
 
     // ── The three rectangles ──────────────────────────────────────────────────────────────────
     //
-    // 0 : the left band, fold on its LEFT edge.  1 : the right band, fold on its RIGHT edge.
-    // 2 : the column under them, fold on its left — the same rectangle the one-edge plan is.
+    // The fold side of each one is `seatFoldsOnTheLeft`, written above and nowhere else: it decides
+    // both the margins and the wall a fold piece is glued to, and two statements of it would drift
+    // apart in silence.
     struct Seat
     {
         double width;
         Bin::Margins margins;
-        bool foldOnTheRight;
     };
-    const Seat seats[3] = {{leftWidth, CuttingRules::SeatMargins(true, marginPx), false},
-                           {rightWidth, CuttingRules::SeatMargins(false, marginPx), true},
-                           {binWidthPx, CuttingRules::SeatMargins(true, marginPx), false}};
+    const Seat seats[3] = {{leftWidth, CuttingRules::SeatMargins(seatFoldsOnTheLeft[0], marginPx)},
+                           {rightWidth, CuttingRules::SeatMargins(seatFoldsOnTheLeft[1], marginPx)},
+                           {binWidthPx, CuttingRules::SeatMargins(seatFoldsOnTheLeft[2], marginPx)}};
 
     // A rectangle is paid for before it receives anything: the test is on the USABLE width.
     const auto usable = [&seats](int seat) {
         return seats[seat].width - seats[seat].margins.left - seats[seat].margins.right;
     };
-    const auto foldSeat = [&seats](int seat) { return seats[seat].foldOnTheRight; };
 
     std::vector<int> assignment(layout.poses.size(), 2);
     for (std::size_t index = 0; index < layout.poses.size(); ++index)
@@ -491,7 +529,8 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
                 subset.push_back(layout.footprint.polygons.at(index));
                 subsetAngles.push_back(angles.at(index));
                 subsetAnchors.push_back(layout.poses.at(static_cast<int>(index)).onFold
-                                            ? (foldSeat(seat) ? Anchor::RightWall : Anchor::LeftWall)
+                                            ? (seatFoldsOnTheLeft[seat] ? Anchor::LeftWall
+                                                                        : Anchor::RightWall)
                                             : Anchor::Free);
             }
 
@@ -581,8 +620,8 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
     //
     // **A pose moves whole, and only a strictly lower height is kept.** The two band poses never
     // move: taking them out would empty their band of the very reason it exists. A form only enters
-    // a rectangle whose fold side is its own — a natural form needs a fold on the left, a mirror one
-    // a fold on the right — and a rectangle too narrow to receive it is not tried at all.
+    // a rectangle whose fold side is its own — read off the form, never off its name — and a
+    // rectangle too narrow to receive it is not tried at all.
     bool improved = true;
     while (improved)
     {
@@ -602,8 +641,9 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
                     continue;
                 }
 
-                // A form goes to its own side, and nowhere else.
-                if (IsTwin(layout.poses.at(static_cast<int>(index)).key) != foldSeat(seat))
+                // A form goes to its own side, and nowhere else — the side read off the form itself.
+                if (!Suits(layout.poses.at(static_cast<int>(index)), seatFoldsOnTheLeft[seat],
+                           foldRightByKey))
                 {
                     continue;
                 }
@@ -670,11 +710,19 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-/// The direction and the anchoring of every pose, read once — the same reading the two candidates
-/// share, so neither can decide a side differently.
+/// The direction of every pose, and **the side its fold demands**, read once — the same reading the
+/// two candidates share, so neither can decide a side differently.
+///
+/// ⚠️ **The side is READ OFF THE PIECE, never assumed from which form it is.** A pose and its mirror
+/// are the same garment twice: one of them wants the fold on the left of the cloth, the other on the
+/// right, and which is which depends on the piece's own geometry — not on the fact that one is called
+/// the natural and the other the twin. Ostara's cutting plan does exactly this
+/// (`VariantFor`, `oexportnesting.cpp`), and a convention written in its place lays half the pieces
+/// against the selvedge with the fold line floating in the middle of the cloth: a plan that looks
+/// finished and is wrong.
 auto Orient(const QVector<CutPiece> &poses, bool foldedFabric, bool oneWay,
-            QHash<QString, std::vector<double>> *anglesByKey, QHash<QString, Anchor> *anchorByKey,
-            QString *error) -> bool
+            QHash<QString, std::vector<double>> *anglesByKey,
+            QHash<QString, bool> *foldRightByKey, QString *error) -> bool
 {
     for (const CutPiece &pose : poses)
     {
@@ -692,8 +740,7 @@ auto Orient(const QVector<CutPiece> &poses, bool foldedFabric, bool oneWay,
             }
 
             anglesByKey->insert(pose.key, std::vector<double>{angle});
-            anchorByKey->insert(pose.key,
-                                foldOnTheRight ? Anchor::RightWall : Anchor::LeftWall);
+            foldRightByKey->insert(pose.key, foldOnTheRight);
             continue;
         }
 
@@ -703,7 +750,7 @@ auto Orient(const QVector<CutPiece> &poses, bool foldedFabric, bool oneWay,
         direction.arrows = static_cast<CuttingRules::Arrows>(pose.arrows);
 
         anglesByKey->insert(pose.key, CuttingRules::AllowedAngles(direction, oneWay));
-        anchorByKey->insert(pose.key, Anchor::Free);
+        foldRightByKey->insert(pose.key, false);
     }
 
     return true;
@@ -763,34 +810,27 @@ auto CutPlan::Generate(const CutSize &size, const CutPlanRequest &request,
     const bool folded = request.foldedFabric;
 
     QHash<QString, std::vector<double>> anglesByKey;
-    QHash<QString, Anchor> anchorByKey;
+    QHash<QString, bool> foldRightByKey;
 
-    if (!Orient(size.poses, folded, request.oneWay, &anglesByKey, &anchorByKey, &plan.error))
+    if (!Orient(size.poses, folded, request.oneWay, &anglesByKey, &foldRightByKey, &plan.error))
     {
         return plan;
     }
 
     // ── Le candidat à un bord ───────────────────────────────────────────────────────────────────
     //
-    // The column, fold on one long side. Only the natural forms take part: the twin exists to open
-    // the OTHER edge, and that is the other candidate's business.
-    QVector<CutPiece> naturals;
-    for (const CutPiece &pose : size.poses)
-    {
-        if (!folded || !IsTwin(pose.key))
-        {
-            naturals.append(pose);
-        }
-    }
-
-    if (naturals.isEmpty())
+    // The column, fold on its LEFT edge. It receives every pose: which FORM of a fold piece goes in
+    // it is `Lay`'s business, and it is read off the piece's own fold side — a piece whose fold
+    // falls on the right is laid as its mirror, because the rectangle's fold is on the left and the
+    // cloth cannot be folded on both sides at once.
+    if (size.poses.isEmpty())
     {
         plan.error = QObject::tr("No piece can be laid out for this size.");
         return plan;
     }
 
     const Layout one =
-        Lay(naturals, anglesByKey, anchorByKey, folded, plan.binWidthPx, marginPx, gapPx);
+        Lay(size.poses, anglesByKey, foldRightByKey, folded, plan.binWidthPx, marginPx, gapPx);
     if (!one.ok)
     {
         plan.error = one.error;
@@ -806,8 +846,8 @@ auto CutPlan::Generate(const CutSize &size, const CutPlanRequest &request,
     // that matches its own edge, and a form left out of a plan is not drawn and not cut.
     if (folded)
     {
-        const Layout two = TwoEdges(size.poses, anglesByKey, anchorByKey, plan.binWidthPx, marginPx,
-                                    gapPx);
+        const Layout two = TwoEdges(size.poses, anglesByKey, foldRightByKey, plan.binWidthPx,
+                                    marginPx, gapPx);
 
         // Strictly shorter: on a tie the single edge stays, which is the plan that has always been.
         if (two.ok && two.usedHeightPx < best.usedHeightPx - 1e-6)

@@ -27,17 +27,27 @@
 #include "app/rabnestwindow.h"
 
 #include "app/importoverlay.h"
+#include "app/exportimagedialog.h"
 #include "app/outputinfodialog.h"
+#include "app/printplandialog.h"
 #include "app/runsdock.h"
 #include "app/workspacepage.h"
 
 #include <QAbstractButton>
 #include <QAction>
 #include <QCoreApplication>
+#include <QDir>
+#include <QPageLayout>
+#include <QPainter>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QFileInfo>
 #include <QKeySequence>
 #include <QMessageBox>
 #include "app/print/printpanel.h"
+#include "core/export/planimage.h"
+#include "core/export/planimagewriter.h"
+#include "core/export/plansheet.h"
 #include "core/print/exportcoverpage.h"
 #include "core/print/printmetrics.h"
 #include "core/print/printrecipe.h"
@@ -76,9 +86,8 @@ RabnestWindow::RabnestWindow(QWidget *parent)
     connect(m_runs, &RunsDock::GenerateRequested, this, &RabnestWindow::GenerateOutput);
     connect(m_runs, &RunsDock::InfoRequested, this, &RabnestWindow::ShowOutputInfo);
     connect(m_runs, &RunsDock::DeleteRequested, this, &RabnestWindow::DeleteOutput);
-    // Export is not wired yet: the signal exists, the dock says so in its tooltip, and nothing is
-    // connected — a gesture that did half of something would be worse than one that is visibly not
-    // there yet. Print is wired, and to the print panel beside the canvas.
+    connect(m_runs, &RunsDock::ExportRequested, this, &RabnestWindow::ExportOutputToImage);
+    connect(m_runs, &RunsDock::PrintRequested, this, &RabnestWindow::PrintCutPlan);
 
     connect(m_runs, &RunsDock::CurrentChanged, this, [this](int index) {
         if (index < 0)
@@ -179,6 +188,187 @@ void RabnestWindow::DeleteOutput(int index)
     {
         m_workspace->Clear();
     }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::PrintCutPlan(int index)
+{
+    if (index < 0 || index >= m_plans.size())
+    {
+        return;
+    }
+
+    // ⚠️ **A print run is not a cutting plan.** Its row exists so the print panel has something to
+    // present, and the plan beside it is a shell: printing it would put an empty sheet on paper.
+    if (m_printOutputs.contains(index))
+    {
+        QMessageBox::information(this, tr("Print"),
+                                 tr("This output is a print run. This prints a cutting plan."));
+        return;
+    }
+
+    const CutPlan &plan = m_plans.at(index);
+    if (!plan.ok)
+    {
+        return;
+    }
+
+    // The scene IS the page, so the plan printed has to be the plan on screen.
+    m_workspace->Show(plan);
+
+    const QSizeF planPx(plan.binWidthPx, plan.usedHeightPx);
+
+    PrintPlanDialog choice(this);
+    if (choice.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setPageSize(QPageSize(choice.paper() == PrintPlanDialog::Paper::A4 ? QPageSize::A4
+                                                                               : QPageSize::Letter));
+    printer.setPageOrientation(choice.orientation(planPx));
+
+    // ⚠️ **`fullPage` false, so the painter starts at the corner the printer can actually reach.**
+    // With it true, Qt reports the WHOLE sheet as paintable and the driver's own unprintable margin
+    // is ignored — a plan laid out to the very edge and cropped by the machine. The half centimetre
+    // of air below is on top of this, not instead of it.
+    printer.setFullPage(false);
+
+    QPrintDialog panel(&printer, this);
+    panel.setWindowTitle(tr("Print the cutting plan"));
+    if (panel.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    // ⚠️ **From here the page is what the printer RECEIVED, not what was asked for.** The system panel
+    // lets the paper change, and laying the plan out on the sheet we picked would print on a sheet
+    // that is not in the machine. `fullPage` is set again because the panel may have moved it.
+    printer.setFullPage(false);
+    const QRectF printable(printer.pageRect(QPrinter::DevicePixel));
+    if (printable.isEmpty())
+    {
+        QMessageBox::warning(this, tr("Print"), tr("This printer reports no printable area."));
+        return;
+    }
+
+    const double devicePerMm = printer.resolution() / 25.4;
+    const double air = 5.0 * devicePerMm; // half a centimetre, on the four sides
+
+    QFont font = m_workspace->font();
+    font.setPointSizeF(9.0);
+
+    // ⚠️ **Measured ON THE PRINTER, never on the screen.** A point is physical, but a metric is in the
+    // device's pixels: the same nine-point line is fifteen pixels tall on a screen and two hundred on
+    // a sheet at 1200 dpi. Measured on the screen, the band under the plan came out half a millimetre
+    // tall and the line was drawn outside it.
+    const double bandPx = QFontMetricsF(font, &printer).height() * 1.6;
+
+    const PlanSheet::Sheet sheet = PlanSheet::Of(planPx, printable, air, bandPx);
+    if (sheet.scale <= 0.0)
+    {
+        QMessageBox::warning(this, tr("Print"), tr("The plan does not fit on that page."));
+        return;
+    }
+
+    QPainter painter;
+    if (!painter.begin(&printer))
+    {
+        QMessageBox::warning(this, tr("Print"), tr("The printer could not be opened."));
+        return;
+    }
+
+    // The thinnest stroke, in scene pixels, that still measures a tenth of a millimetre on paper:
+    // a floor written in device pixels would print a line a quarter of that, and a plan drawn in
+    // grey.
+    const double floorPx = 0.1 * devicePerMm / sheet.scale;
+    m_workspace->RenderPlan(&painter, QRectF(QPointF(0.0, 0.0), planPx), sheet.planRect, floorPx);
+
+    // ── La ligne sous le plan ────────────────────────────────────────────────────────────────────
+    //
+    // What the sheet is, and — its own figure, on the right — what it was shrunk to. A plan printed at
+    // 1:6 that does not say so is a ruler that lies by six.
+    const double widthMm = plan.fabricWidthCm * 10.0;
+    const double lengthMm = plan.usedHeightPx * 25.4 / 96.0;
+    const double ratio = (sheet.scale / devicePerMm) / (25.4 / 96.0);
+
+    const QString caption =
+        tr("%1 - Cutting plan: fabric width %2 / %3 inches, length %4 / %5 yards")
+            .arg(plan.sizeLabel, tr("%1 cm").arg(widthMm / 10.0, 0, 'f', 1),
+                 QString::number(widthMm / 25.4, 'f', 0),
+                 tr("%1 cm").arg(lengthMm / 10.0, 0, 'f', 1),
+                 QString::number(lengthMm / 25.4 / 36.0, 'f', 2));
+
+    painter.setFont(font);
+    painter.setPen(Qt::black);
+    painter.drawText(sheet.captionRect, Qt::AlignLeft | Qt::AlignVCenter, caption);
+    painter.drawText(sheet.captionRect, Qt::AlignRight | Qt::AlignVCenter,
+                     ratio > 0.0 ? tr("Scale 1:%1").arg(1.0 / ratio, 0, 'f', 1) : QString());
+
+    painter.end();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ExportOutputToImage(int index)
+{
+    if (index < 0 || index >= m_plans.size())
+    {
+        return;
+    }
+
+    // ⚠️ **A print run is not a cutting plan.** Its row exists so the print panel has something to
+    // present; the plan beside it is a shell, and rendering it would write an empty sheet under the
+    // name of a real output.
+    if (m_printOutputs.contains(index))
+    {
+        QMessageBox::information(this, tr("Export"),
+                                 tr("This output is a print run. Print it, or make a cutting plan to "
+                                    "export an image of."));
+        return;
+    }
+
+    const CutPlan &plan = m_plans.at(index);
+    if (!plan.ok)
+    {
+        return;
+    }
+
+    // ⚠️ **The scene IS the drawing**, so the plan being written has to be the plan on screen —
+    // otherwise the file is the picture of whatever was left there. Showing it also puts the row's
+    // output in front of her, which is where she expects to be after pressing its icon.
+    m_workspace->Show(plan);
+
+    // The plan's own rectangle, never the scene's: the margin around the drawing belongs to the view.
+    const PlanImage::Plan image =
+        PlanImage::Of(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx));
+
+    ExportImageDialog dialog(image, RunsDock::Name(plan), m_exportDirectory, this);
+    if (dialog.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    const QString path = QDir(dialog.directory()).filePath(dialog.fileName());
+
+    const bool written = PlanImageWriter::Write(
+        path,
+        [this](QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx) {
+            m_workspace->RenderPlan(painter, sourcePx, targetPx);
+        },
+        image.rectPx, dialog.target(), dialog.format(), RunsDock::Name(plan));
+
+    if (!written)
+    {
+        QMessageBox::warning(this, tr("Export"),
+                             tr("The file could not be written:\n%1").arg(path));
+        return;
+    }
+
+    // Remembered only once a file exists: proposing a folder the export never reached would make
+    // the next one fail in the same place.
+    m_exportDirectory = dialog.directory();
+    QMessageBox::information(this, tr("Export"), tr("File written:\n%1").arg(path));
 }
 
 //---------------------------------------------------------------------------------------------------------------------

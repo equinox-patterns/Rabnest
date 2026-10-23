@@ -25,6 +25,7 @@
  *************************************************************************/
 
 #include "app/print/printpanel.h"
+#include "app/factorywidgets.h"
 
 #include "core/print/exportpaginationsettings.h"
 
@@ -115,7 +116,7 @@ void PrintPanel::Build()
     form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     // ── The unit ───────────────────────────────────────────────────────────────────────────────
-    m_unit = new QComboBox(this);
+    m_unit = MakeComboBox(this);
     m_unit->addItem(UnitLabel(DisplayUnit::Millimetre), static_cast<int>(DisplayUnit::Millimetre));
     m_unit->addItem(UnitLabel(DisplayUnit::Centimetre), static_cast<int>(DisplayUnit::Centimetre));
     m_unit->addItem(UnitLabel(DisplayUnit::Inch), static_cast<int>(DisplayUnit::Inch));
@@ -128,7 +129,7 @@ void PrintPanel::Build()
     form->addRow(tr("Generate:"), m_sizes);
 
     // ── The paper ───────────────────────────────────────────────────────────────────────────────
-    m_model = new QComboBox(this);
+    m_model = MakeComboBox(this);
     for (const ExportPrintModel &model : ExportPrintModels())
     {
         // A0 is in the table and NOT offered, exactly as Ostara lists it greyed: the row exists so

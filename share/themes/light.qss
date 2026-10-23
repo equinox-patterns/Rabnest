@@ -656,6 +656,14 @@ QCheckBox,
 QRadioButton {
     color: #2b2b2b;
     spacing: 8px;
+
+    /* ⚠️ Une hauteur minimale DURE, et pas une politesse.
+       `width`/`height` sur `::indicator` fixent la taille du DESSIN, jamais celle que le widget
+       réclame : `QCheckBox::minimumSizeHint()` ne connaît que la police, et un QVBoxLayout à court
+       de place descend donc SOUS cette hauteur — mesuré : 6 px au lieu de 18, l'icône coupée en
+       haut et en bas, deux traits verticaux à la place d'un carré. `min-height` en QSS, lui, passe
+       par la taille minimale du widget : la mise en page ne peut plus y descendre. */
+    min-height: 20px;
 }
 
 QCheckBox:disabled,

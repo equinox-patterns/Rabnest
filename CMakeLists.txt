@@ -45,6 +45,11 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/importoverlay.h
     src/app/outputinfodialog.cpp
     src/app/outputinfodialog.h
+    src/app/exportimagedialog.cpp
+    src/app/exportimagedialog.h
+    src/app/printplandialog.cpp
+    src/app/printplandialog.h
+    src/app/factorywidgets.h
     src/app/rabnesttheme.cpp
     src/app/rabnesttheme.h
     src/app/runsdock.cpp
@@ -61,6 +66,12 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/print/printpanel.h
     src/core/cutplan.cpp
     src/core/cutplan.h
+    src/core/export/planimage.cpp
+    src/core/export/planimage.h
+    src/core/export/planimagewriter.cpp
+    src/core/export/planimagewriter.h
+    src/core/export/plansheet.cpp
+    src/core/export/plansheet.h
     src/core/cutplanrequest.h
     src/core/importeddocument.cpp
     src/core/importeddocument.h

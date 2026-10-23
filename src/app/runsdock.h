@@ -54,6 +54,10 @@ class RunsDock : public QDockWidget
 public:
     explicit RunsDock(QWidget *parent = nullptr);
 
+    /// What an output is called: its size, and the kind of plan it is. Named once for the whole
+    /// application — the dock shows it, and an exported file carries it.
+    static auto Name(const CutPlan &plan) -> QString;
+
     /// Adds a plan and selects it — the selection is what puts it on the canvas.
     void AddRun(const CutPlan &plan);
 
