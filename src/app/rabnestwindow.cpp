@@ -27,10 +27,16 @@
 #include "app/rabnestwindow.h"
 
 #include "app/importoverlay.h"
+#include "app/outputinfodialog.h"
 #include "app/runsdock.h"
 #include "app/workspacepage.h"
 
+#include <QAbstractButton>
+#include <QAction>
 #include <QCoreApplication>
+#include <QFileInfo>
+#include <QKeySequence>
+#include <QMessageBox>
 #include <QResizeEvent>
 #include <QTimer>
 
@@ -57,8 +63,13 @@ RabnestWindow::RabnestWindow(QWidget *parent)
     m_runs = new RunsDock(this);
     addDockWidget(Qt::LeftDockWidgetArea, m_runs);
 
-    connect(m_runs, &RunsDock::Import, this, &RabnestWindow::Import);
-    connect(m_runs, &RunsDock::NewPlan, this, &RabnestWindow::LayOutAgain);
+    connect(m_runs, &RunsDock::HomeRequested, this, &RabnestWindow::BackHome);
+    connect(m_runs, &RunsDock::GenerateRequested, this, &RabnestWindow::GenerateOutput);
+    connect(m_runs, &RunsDock::InfoRequested, this, &RabnestWindow::ShowOutputInfo);
+    connect(m_runs, &RunsDock::DeleteRequested, this, &RabnestWindow::DeleteOutput);
+    // Export and print are not wired yet: the two signals exist, the dock says so in its tooltips,
+    // and nothing is connected — a gesture that did half of something would be worse than one that
+    // is visibly not there yet.
 
     connect(m_runs, &RunsDock::CurrentChanged, this, [this](int index) {
         if (index >= 0 && index < m_plans.size())
@@ -66,6 +77,18 @@ RabnestWindow::RabnestWindow(QWidget *parent)
             m_workspace->Show(m_plans.at(index));
         }
     });
+
+    // The zoom of the canvas. `QKeySequence::ZoomIn` is ⌘+ on this platform, and it accepts ⌘= as
+    // well — the key a keyboard actually has, where the plus is a shifted equal.
+    const auto addZoom = [this](const QKeySequence &sequence, void (WorkspacePage::*slot)()) {
+        auto *action = new QAction(this);
+        action->setShortcut(sequence);
+        action->setShortcutContext(Qt::WindowShortcut);
+        connect(action, &QAction::triggered, m_workspace, slot);
+        addAction(action);
+    };
+    addZoom(QKeySequence(QKeySequence::ZoomIn), &WorkspacePage::ZoomIn);
+    addZoom(QKeySequence(QKeySequence::ZoomOut), &WorkspacePage::ZoomOut);
 
     // A window with nothing on it and no other way in would be a dead end, so the first gesture is
     // the only one: import a PDF. Asked AFTER the window is up, so the workspace is already there
@@ -92,18 +115,89 @@ void RabnestWindow::Import()
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void RabnestWindow::LayOutAgain()
+void RabnestWindow::GenerateOutput()
 {
     if (!m_document.isValid())
     {
         return;
     }
 
+    // The three steps again, on the same PDF. « Another output » is another answer to the same
+    // three questions — another size, another set of pieces — and the journey asks them rather than
+    // guessing which ones changed.
     OpenOverlay(true);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void RabnestWindow::OpenOverlay(bool planOnly)
+void RabnestWindow::DeleteOutput(int index)
+{
+    if (index < 0 || index >= m_plans.size())
+    {
+        return;
+    }
+
+    // **The window's list first.** Removing the row raises the selection change, and that change
+    // reads this very vector: it has to name the surviving plans already, or the canvas would show
+    // the plan one row off.
+    m_plans.remove(index);
+    m_runs->RemoveRun(index);
+
+    if (m_plans.isEmpty())
+    {
+        m_workspace->Clear();
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ShowOutputInfo(int index)
+{
+    if (index < 0 || index >= m_plans.size())
+    {
+        return;
+    }
+
+    OutputInfoDialog dialog(m_plans.at(index), this);
+    dialog.exec();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::BackHome()
+{
+    // What is lost, named: the PDF she imported, not « the current file ».
+    const QString file = QFileInfo(m_document.path()).fileName();
+
+    if (m_document.isValid())
+    {
+        QMessageBox question(QMessageBox::Question, tr("Back to home"),
+                             tr("Every output of \"%1\" will be lost.\n\n"
+                                "Make sure you have exported or printed everything you need.")
+                                 .arg(file),
+                             QMessageBox::Yes | QMessageBox::Cancel, this);
+        question.setDefaultButton(QMessageBox::Cancel);
+        question.button(QMessageBox::Yes)->setText(tr("Back to home"));
+
+        if (question.exec() != QMessageBox::Yes)
+        {
+            return;
+        }
+    }
+
+    // Nothing of the previous PDF survives: not the plans, not the rows, not the drawing, not the
+    // document the next output would have been generated from.
+    m_plans.clear();
+    m_runs->Clear();
+    m_workspace->Clear();
+
+    m_document = ImportedDocument();
+    m_sizeIds.clear();
+    m_pieceIds.clear();
+    m_runs->SetCanGenerate(false);
+
+    OpenOverlay(false);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::OpenOverlay(bool generateFromDocument)
 {
     if (m_overlay != nullptr)
     {
@@ -115,9 +209,9 @@ void RabnestWindow::OpenOverlay(bool planOnly)
     m_overlay = new ImportOverlay(this);
     m_overlay->setGeometry(rect());
 
-    if (planOnly)
+    if (generateFromDocument)
     {
-        m_overlay->StartAtCutPlan(m_document, m_sizeIds, m_pieceIds);
+        m_overlay->StartAtSizes(m_document);
     }
 
     m_overlay->show();
@@ -132,7 +226,7 @@ void RabnestWindow::OpenOverlay(bool planOnly)
             m_document = m_overlay->document();
             m_sizeIds = m_overlay->sizeIds();
             m_pieceIds = m_overlay->pieceIds();
-            m_runs->SetCanLayOutAgain(true);
+            m_runs->SetCanGenerate(true);
         }
 
         m_overlay->deleteLater();

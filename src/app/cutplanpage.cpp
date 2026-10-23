@@ -60,9 +60,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     layout->addWidget(title);
 
     auto *subtitle = new QLabel(
-        tr("One plan per size: tick the sizes to lay out. The cloth below is the same for all of "
-           "them — the grain, the fold and how many times a piece is cut come from the pattern, and "
-           "Rabnest leaves them alone."),
+        tr("A cut plan is laid for one size. Tick the sizes you want: each one gets its own plan."),
         this);
     subtitle->setObjectName(QStringLiteral("stepSubtitle"));
     subtitle->setWordWrap(true);
@@ -98,13 +96,13 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     layout->addLayout(form);
     layout->addSpacing(12);
 
-    m_folded = new QCheckBox(tr("The fabric is folded in two"), this);
+    m_folded = new QCheckBox(tr("The fabric is folded"), this);
     m_folded->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_folded);
 
     auto *foldedHint = new QLabel(
-        tr("The width entered is the unfolded fabric: the plan is laid on half of it, and a piece "
-           "cut on the fold is laid folded, its fold on the edge."),
+        tr("Folded: a piece cut on the fold is laid on the fold. Unfolded: that piece is shown "
+           "whole, so unfolded. The width you enter is always the unfolded fabric."),
         this);
     foldedHint->setObjectName(QStringLiteral("outputDescription"));
     foldedHint->setWordWrap(true);
@@ -116,8 +114,8 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     layout->addWidget(m_oneWay);
 
     auto *oneWayHint = new QLabel(
-        tr("No piece is turned a half-turn. On a piece with two axes — the straight grain and the "
-           "cross grain — both are still allowed, but each one way only."),
+        tr("The grain line is always respected, ticked or not. Unticked, pieces may be laid head to "
+           "tail; ticked, they all lie the same way round."),
         this);
     oneWayHint->setObjectName(QStringLiteral("outputDescription"));
     oneWayHint->setWordWrap(true);

@@ -43,6 +43,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/cutplanpage.h
     src/app/importoverlay.cpp
     src/app/importoverlay.h
+    src/app/outputinfodialog.cpp
+    src/app/outputinfodialog.h
     src/app/rabnesttheme.cpp
     src/app/rabnesttheme.h
     src/app/runsdock.cpp

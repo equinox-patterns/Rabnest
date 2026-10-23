@@ -4,8 +4,8 @@
  **  @author Sophie Denys <contact@sophiedenys.com>
  **  @date   22/10/2026
  **
- **  @brief  The dock of plans — what has been laid out, and the way to
- **          lay out another.
+ **  @brief  The dock of outputs — what has been laid out, what each of
+ **          them was asked for, and the way to make another one.
  **
  **  @copyright
  **  Copyright (C) 2026 Sophie Denys <contact@sophiedenys.com>
@@ -31,21 +31,22 @@
 #include "core/cutplan.h"
 
 #include <QDockWidget>
+#include <QString>
 #include <QVector>
 
-class QListWidget;
 class QPushButton;
+class QTableWidget;
 
-/// The plans, as a dock — the same shape Ostara's export mode gives its outputs.
+/// The outputs, as a dock — the same shape Ostara's export mode gives its outputs.
 ///
-/// **An entry has to say what it is.** « Taille 42 » is a size, not a plan: the same size laid on
-/// 140 cm of folded cloth and on 90 cm of flat cloth are two different answers to two different
-/// questions, and a list that shows only the size makes them one line. Each entry carries its cloth,
-/// its length and what it cost.
+/// **One line, one output, and what it was asked for.** A line says what the output IS
+/// (« Taille 46 - Cut ») and carries the four gestures a line needs: what it was asked for, export
+/// it, print it, delete it. Two of the four are not wired yet and say so; the two that are wired do
+/// their work here rather than in the window, so a row's identity never depends on an index kept
+/// somewhere else.
 ///
-/// The two ways of getting another one are here, because they are different questions: laying the
-/// SAME pattern out on another cloth — folded, flat, a narrower laize — and starting from another
-/// PDF. Only the second one touches the import.
+/// **The dock never touches a plan.** It shows rows, and every gesture leaves as a signal carrying
+/// the row it came from — the window owns the plans, and the canvas follows the selection.
 class RunsDock : public QDockWidget
 {
     Q_OBJECT
@@ -53,21 +54,55 @@ class RunsDock : public QDockWidget
 public:
     explicit RunsDock(QWidget *parent = nullptr);
 
-    /// Adds a plan and selects it.
+    /// Adds a plan and selects it — the selection is what puts it on the canvas.
     void AddRun(const CutPlan &plan);
 
-    /// Whether a pattern is loaded, which is what makes « another plan » possible at all.
-    void SetCanLayOutAgain(bool possible);
+    /// Removes one row. The plans themselves are the window's; it removes its own copy first, so
+    /// that the selection change this raises already names a valid row.
+    void RemoveRun(int index);
+
+    /// Empties the dock — « back to home » throws the whole PDF away.
+    void Clear();
+
+    /// Whether a pattern is loaded, which is what makes another output possible at all.
+    void SetCanGenerate(bool possible);
 
 signals:
     void CurrentChanged(int index);
-    void NewPlan();
-    void Import();
+
+    void GenerateRequested();
+    void ExportSeveralRequested();
+
+    void InfoRequested(int index);
+    void ExportRequested(int index);
+    void PrintRequested(int index);
+    void DeleteRequested(int index);
+
+    void HomeRequested();
+
+protected:
+    /// The hover rule: a button of the dock has an accent background under the pointer, so its icon
+    /// must become the dark one for as long as it is there.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    QListWidget *m_list = nullptr;
-    QPushButton *m_newPlan = nullptr;
-    QVector<CutPlan> m_plans;
+    void BuildUi();
+    void UpdateGlyphs();
+    void RefreshEnabledState();
+
+    QTableWidget *m_table = nullptr;
+    QPushButton *m_generate = nullptr;
+    QPushButton *m_exportSeveral = nullptr;
+    QPushButton *m_home = nullptr;
+
+    /// The buttons, with their icon name, so the hover rule can find the file again.
+    struct Glyph
+    {
+        QPushButton *button = nullptr;
+        QString iconName;
+    };
+
+    QVector<Glyph> m_glyphs;
 };
 
 #endif  // RUNSDOCK_H

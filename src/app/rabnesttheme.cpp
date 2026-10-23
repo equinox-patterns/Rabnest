@@ -136,7 +136,13 @@ void RabnestTheme::Apply(bool dark)
 //---------------------------------------------------------------------------------------------------------------------
 auto RabnestTheme::Icon(const QString &baseName) -> QIcon
 {
-    const QString theme = gDark ? QStringLiteral("dark") : QStringLiteral("light");
+    return Icon(baseName, gDark);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto RabnestTheme::Icon(const QString &baseName, bool dark) -> QIcon
+{
+    const QString theme = dark ? QStringLiteral("dark") : QStringLiteral("light");
     return QIcon(QStringLiteral(":/icons/%1/%2_%1.svg").arg(theme, baseName));
 }
 

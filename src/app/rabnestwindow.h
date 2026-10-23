@@ -57,8 +57,11 @@ protected:
 
 private:
     void Import();
-    void LayOutAgain();
-    void OpenOverlay(bool planOnly);
+    void GenerateOutput();
+    void DeleteOutput(int index);
+    void ShowOutputInfo(int index);
+    void BackHome();
+    void OpenOverlay(bool generateFromDocument);
 
     WorkspacePage *m_workspace = nullptr;
     RunsDock *m_runs = nullptr;

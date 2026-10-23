@@ -56,6 +56,13 @@ void Apply(bool dark = false);
 /// the stylesheets use, so an icon handed to a button and an icon a rule draws are the same file.
 auto Icon(const QString &baseName) -> QIcon;
 
+/// The same icon in a NAMED theme, whatever the application's own is.
+///
+/// **The hover/selected rule needs it.** A row of the outputs dock is dark when it is hovered or
+/// chosen — in both themes, because the accent colour is dark — so its icons must become the DARK
+/// set at that moment. That is a second file in the same QIcon, and this is how it is named.
+auto Icon(const QString &baseName, bool dark) -> QIcon;
+
 /// The interface face, loaded from the application's own resources.
 ///
 /// Rabnest ships Inter and installs it at startup: the client's machine has none of the faces this

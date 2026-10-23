@@ -87,6 +87,13 @@ struct CutPlan
     double fabricWidthCm = 0.0;
     bool oneWay = false;
 
+    /// What the run asked for beyond the cloth: the margin it must leave at the edge of the fabric,
+    /// and the gap it must leave between two pieces. Carried because the OUTPUTS DOCK has to answer
+    /// « what did I ask for that one? » months later, and a figure that lives only in a dialog she
+    /// has already closed cannot answer it. Absent from the earlier plans, hence the defaults.
+    double marginCm = 0.0;
+    double gapCm = 0.0;
+
     double binWidthPx = 0.0;   ///< the laize, halved when the cloth is folded
     double usedHeightPx = 0.0; ///< the length of fabric the plan costs, bottom margin included
     bool foldedFabric = false;

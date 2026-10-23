@@ -82,6 +82,7 @@
         <file alias="plus_light.svg">themes/icons/light/plus_light.svg</file>
         <file alias="polygon-fill_light.svg">themes/icons/light/polygon-fill_light.svg</file>
         <file alias="printer-fill_light.svg">themes/icons/light/printer-fill_light.svg</file>
+        <file alias="printer_light.svg">themes/icons/light/printer_light.svg</file>
         <file alias="radio-button-fill_accent.svg">themes/icons/light/radio-button-fill_accent.svg</file>
         <file alias="radio-button-fill_disabled.svg">themes/icons/light/radio-button-fill_disabled.svg</file>
         <file alias="radio-button-fill_light.svg">themes/icons/light/radio-button-fill_light.svg</file>
@@ -184,6 +185,7 @@
         <file alias="plus_dark.svg">themes/icons/dark/plus_dark.svg</file>
         <file alias="polygon-fill_dark.svg">themes/icons/dark/polygon-fill_dark.svg</file>
         <file alias="printer-fill_dark.svg">themes/icons/dark/printer-fill_dark.svg</file>
+        <file alias="printer_dark.svg">themes/icons/dark/printer_dark.svg</file>
         <file alias="radio-button-fill_accent.svg">themes/icons/dark/radio-button-fill_accent.svg</file>
         <file alias="radio-button-fill_dark.svg">themes/icons/dark/radio-button-fill_dark.svg</file>
         <file alias="radio-button-fill_disabled.svg">themes/icons/dark/radio-button-fill_disabled.svg</file>

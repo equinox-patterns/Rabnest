@@ -40,6 +40,7 @@ class CutPlanPage;
 class ImportPage;
 class LayersPage;
 class QFrame;
+class QPushButton;
 class QStackedWidget;
 
 /// The steps, laid OVER the workspace — dimmed behind, one window on screen.
@@ -64,9 +65,15 @@ public:
     const QStringList &sizeIds() const { return m_sizeIds; }
     const QStringList &pieceIds() const { return m_pieceIds; }
 
-    /// Opens straight on the cloth page, for a pattern that is already imported.
-    void StartAtCutPlan(const ImportedDocument &document, const QStringList &sizeIds,
-                        const QStringList &pieceIds);
+    /// Opens on the FIRST step, for a pattern that is already imported: she wants another output
+    /// of the same PDF — another size, another set of pieces — and the three steps are the same
+    /// three steps, with nothing carried over but the document itself.
+    ///
+    /// ⚠️ **Not on the cloth step.** Skipping to the third step was the old « lay out another
+    /// plan », and it could not work: the pieces page had never been filled, so the generation ran
+    /// with an empty list of pieces and refused every size. Asking the three questions again is
+    /// both the honest journey and the one that cannot lose a selection it never asked for.
+    void StartAtSizes(const ImportedDocument &document);
 
 signals:
     /// Empty when the journey was given up — closing the panel, or Escape.
@@ -95,6 +102,7 @@ private:
     QStringList m_pieceIds;
 
     QFrame *m_card = nullptr;
+    QPushButton *m_cancel = nullptr;
     QStackedWidget *m_stack = nullptr;
     ImportPage *m_import = nullptr;
     ChecklistPage *m_sizes = nullptr;

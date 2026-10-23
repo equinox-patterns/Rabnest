@@ -45,10 +45,12 @@
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QKeyEvent>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainter>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
@@ -174,6 +176,24 @@ ImportOverlay::ImportOverlay(QWidget *parent)
     m_stack = new QStackedWidget(m_card);
     cardLayout->addWidget(m_stack);
 
+    // ── Annuler ────────────────────────────────────────────────────────────────────────────────
+    //
+    // **Sortir à tout moment, d'un clic, et sans rien garder.** Échap le fait déjà au clavier,
+    // mais une fenêtre dont la seule sortie est une touche qu'on ne voit pas n'en a pas : la
+    // génération d'une sortie peut se quitter au milieu des trois étapes, et ce bouton le dit.
+    // Il n'existe pas à l'étape d'import : là, il n'y a rien à annuler.
+    m_cancel = new QPushButton(tr("Cancel"), m_card);
+    m_cancel->setObjectName(QStringLiteral("cancelButton"));
+    m_cancel->setCursor(Qt::PointingHandCursor);
+
+    auto *cancelRow = new QHBoxLayout();
+    cancelRow->setContentsMargins(16, 0, 16, 14);
+    cancelRow->addStretch(1);
+    cancelRow->addWidget(m_cancel);
+    cardLayout->addLayout(cancelRow);
+
+    connect(m_cancel, &QPushButton::clicked, this, [this] { Finish({}); });
+
     m_import = new ImportPage(m_stack);
     m_sizes = new ChecklistPage(tr("Sizes"), tr("Tick the sizes to keep."), m_stack);
     m_pieces = new ChecklistPage(tr("Pieces"), tr("Tick the pieces to keep."), m_stack);
@@ -242,20 +262,24 @@ void ImportOverlay::Finish(const QVector<CutPlan> &plans)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void ImportOverlay::StartAtCutPlan(const ImportedDocument &document, const QStringList &sizeIds,
-                                   const QStringList &pieceIds)
+void ImportOverlay::StartAtSizes(const ImportedDocument &document)
 {
     m_document = document;
-    m_sizeIds = sizeIds;
-    m_pieceIds = pieceIds;
+    // Nothing is carried over but the document: the sizes and the pieces of the previous output
+    // are the previous output's answer, and asking them again is what « generate an output »
+    // means. The pages are refilled from the document as the journey goes.
+    m_sizeIds.clear();
+    m_pieceIds.clear();
 
-    ShowCutPlan();
+    ShowSizes();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 void ImportOverlay::ShowPage(QWidget *page)
 {
     m_stack->setCurrentWidget(page);
+    // Nothing to cancel before a PDF has been chosen: the import page IS the way in.
+    m_cancel->setVisible(page != m_import);
 }
 
 //---------------------------------------------------------------------------------------------------------------------

@@ -748,6 +748,8 @@ auto CutPlan::Generate(const CutSize &size, const CutPlanRequest &request,
     plan.foldedFabric = request.foldedFabric;
     plan.fabricWidthCm = request.widthCm;
     plan.oneWay = request.oneWay;
+    plan.marginCm = request.marginCm;
+    plan.gapCm = request.gapCm;
     plan.binWidthPx = request.BinWidthCm() * kPxPerCm;
 
     if (plan.binWidthPx <= 0.0)

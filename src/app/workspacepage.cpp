@@ -169,6 +169,54 @@ void WorkspacePage::Show(const CutPlan &plan)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::Clear()
+{
+    m_scene->clear();
+    m_detail->clear();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::ZoomIn()
+{
+    ZoomBy(1.25);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::ZoomOut()
+{
+    ZoomBy(1.0 / 1.25);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::ZoomBy(double factor)
+{
+    if (m_scene == nullptr || m_scene->items().isEmpty())
+    {
+        return;
+    }
+
+    // **Le centre de la vue reste le centre de la vue.** A step of zoom that also moved the drawing
+    // would be a pan disguised as a zoom: the point looked at before the gesture has to be the point
+    // looked at after it.
+    const QPoint viewportCentre = m_view->viewport()->rect().center();
+    const QPointF before = m_view->mapToScene(viewportCentre);
+
+    const double scale = m_view->transform().m11();
+    constexpr double kLargest = 50.0;
+    constexpr double kSmallest = 0.002;
+    if ((factor > 1.0 && scale >= kLargest) || (factor < 1.0 && scale <= kSmallest))
+    {
+        return;
+    }
+
+    m_view->scale(factor, factor);
+
+    const QPointF after = m_view->mapToScene(viewportCentre);
+    const QPointF delta = after - before;
+    m_view->translate(delta.x(), delta.y());
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void WorkspacePage::Draw(const CutPlan &plan)
 {
     m_scene->clear();

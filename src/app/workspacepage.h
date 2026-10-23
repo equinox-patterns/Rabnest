@@ -52,8 +52,19 @@ public:
     /// Shows one plan, and nothing else: the list of them is the dock's, not the canvas's.
     void Show(const CutPlan &plan);
 
+    /// A blank canvas — « back to home » leaves nothing of the PDF on screen.
+    void Clear();
+
+    /// The zoom of the canvas, in steps around what is on screen.
+    ///
+    /// **A step, not a factor of the plan.** Zooming does not re-lay anything: it changes how the
+    /// same drawing is looked at, and a plan shown at 150 % is the plan, seen closer.
+    void ZoomIn();
+    void ZoomOut();
+
 private:
     void Draw(const CutPlan &plan);
+    void ZoomBy(double factor);
 
     QGraphicsView *m_view = nullptr;
     QGraphicsScene *m_scene = nullptr;
