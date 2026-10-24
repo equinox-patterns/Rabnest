@@ -33,8 +33,10 @@
 #include <QString>
 #include <QWidget>
 
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QFormLayout;
 class QLabel;
 class QSpinBox;
 
@@ -66,8 +68,16 @@ public:
     auto GapMm() const -> double;
     auto Unit() const -> int;
 
+    /// True when the run is to be drawn black and solid, without the pattern's own line — the box is
+    /// only ever offered for a run of ONE size (see `SetSizeCount`).
+    auto PlainOutline() const -> bool;
+
     /// What was ticked at step 1 — shown, never chosen: « Size range 40–42 », « Size 46 ».
     void SetSizesText(const QString &text);
+
+    /// How many sizes were ticked. A run of one size is offered the plain black line; a run of
+    /// several is not, because a colour and a dash are what tell two sizes apart.
+    void SetSizeCount(int count);
 
     /// Sets the model by token, and the columns; the fields then say what the format says.
     void SetModel(const QString &token, int columns);
@@ -87,14 +97,28 @@ private:
     QComboBox *m_model = nullptr;
     QLabel *m_sheetSize = nullptr;
     QSpinBox *m_columns = nullptr;
+    QCheckBox *m_plainOutline = nullptr;
+    QLabel *m_plainNote = nullptr;
     QLabel *m_documentWidth = nullptr;
     QDoubleSpinBox *m_margin = nullptr;
     QDoubleSpinBox *m_gap = nullptr;
+
+    /// The layout the rows are in — the column row is shown or hidden as a ROW, so that a field
+    /// a format has no use for leaves neither a box nor a label behind.
+    QFormLayout *m_form = nullptr;
 
     /// The two figures the run is nested with, in MILLIMETRES — the unit they are stored in, as
     /// everywhere in the socle. The spin boxes only ever show them, in the unit the user reads.
     double m_marginMm = 5.0;
     double m_gapMm = 5.0;
+
+    /// Whether the column count is the user's. A format's own count is written on the field
+    /// until she types one, and a count she typed outlives the format she typed it on — the two
+    /// rules Ostara states in one flag (`oexporttiledformatwidget.cpp:74`, `:91`).
+    bool m_columnsChosen = false;
+
+    /// True when the run is over one size — the only case the plain black line is offered in.
+    bool m_singleSize = false;
 };
 
 #endif // PRINTPANEL_H

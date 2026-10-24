@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
 
     PrintPlan plan = PrintPlan::Generate(document, sizeIds, pieces, marginMm / 10.0,
                                                gapMm / 10.0, binWidthPx, columns, model->heightMm,
-                                               coverBlock);
+                                               coverBlock, QString::fromLatin1(model->token));
 
     if (!plan.ok)
     {
@@ -288,7 +288,8 @@ int main(int argc, char *argv[])
         << " grid=" << plan.grid.columns << "x" << plan.grid.rows
         << " sheets=" << plan.sheets.count << " (of " << (plan.grid.columns * plan.grid.rows) << ")"
         << "\n";
-    out << "pages: " << plan.sheets.count + (seat == CoverSeat::ExtraSheet && !recipe.coverSvg.isEmpty() ? 1 : 0)
+    out << "pages: "
+        << plan.Pages(seat == CoverSeat::ExtraSheet && !recipe.coverSvg.isEmpty())
         << " (cover " << (seat == CoverSeat::ExtraSheet ? "on its own sheet" : "on the plan") << ")\n";
 
     out << "placements: " << plan.placements.size() << "\n";

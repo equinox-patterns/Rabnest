@@ -71,12 +71,25 @@ private:
     void DeleteOutput(int index);
 
     /// The dock's download icon: this output's plan as an image — the same drawing the canvas
-    /// shows, written as SVG or PNG at the size the user gives.
+    /// shows, written as SVG or PNG at the size the user gives. A print run is answered by
+    /// @ref ExportPrintOutput, since a run is not laid out to be pictured.
     void ExportOutputToImage(int index);
+
+    /// The dock's download icon on a PRINT RUN: the run delivered as a PDF, which is the only file
+    /// a print can be. One layer per size, one page per printed sheet, the paper's own marks under
+    /// them and the cover page over them.
+    void ExportPrintOutput(int index);
 
     /// The dock's printer icon: this output's plan on ONE sheet, shrunk to fit the paper the user
     /// picks, with the line that says which size it is, on what cloth, and at what scale.
     void PrintCutPlan(int index);
+
+    /// The dock's printer icon on a PRINT RUN: the run on paper, one page per sheet, at 100 %.
+    ///
+    /// **The paper is not a choice, it is a consequence.** The sheets are already at their final
+    /// size and they are glued to each other, so only a paper that holds the run's sheet whole is
+    /// offered — and when the printer ends on another one, nothing is printed.
+    void PrintPrintOutput(int index);
     void ShowOutputInfo(int index);
     void BackHome();
     void OpenOverlay(bool generateFromDocument);
@@ -85,7 +98,7 @@ private:
     /// that output — the sheets, their paper, the decor and the cover page.
     /// The Print tab generated: lay the run out, add its row, and show it.
     void GeneratePrint(const QStringList &sizeIds, const QString &modelToken, int columns,
-                       double marginMm, double gapMm);
+                       double marginMm, double gapMm, bool plainOutline);
 
     /// One print run, kept whole: what the canvas needs to draw it again when its row is selected.
     struct PrintOutput
@@ -96,6 +109,13 @@ private:
         QRectF coverPaper;
         QRectF coverPage;
         bool framed = false;
+
+        /// The PDF this run was laid from.
+        ///
+        /// Kept rather than read off the window's current document, because the window's document is
+        /// the LAST import and a run can outlive it: a PDF exported from an older row must carry the
+        /// payload it was actually laid from, not the one that happens to be open.
+        QString sourcePath;
     };
 
     /// The print runs, by the row that presents them. A row is a plan or a print run, never both,

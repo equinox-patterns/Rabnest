@@ -363,6 +363,9 @@ void CutPlanPage::UpdateGenerateText()
         }
     }
 
+    // A run of one size is offered the plain black line; a run of several is not (see `PrintPanel`).
+    m_print->SetSizeCount(labels.size());
+
     if (labels.isEmpty())
     {
         m_print->SetSizesText(QString());

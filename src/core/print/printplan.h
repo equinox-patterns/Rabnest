@@ -106,6 +106,14 @@ struct PrintLayer
     /// decision, and Rabnest has no business inventing a second one.
     QColor colour{0x2B, 0x2B, 0x2B};
     QVector<qreal> dashes;
+
+    /// The weight the size's own paths state, in the payload's pixels.
+    ///
+    /// **The canvas does not draw with it**, and does not want to: a plan is shown zoomed out, and
+    /// a 0.5 mm line at that scale is a grey smear — the canvas has a floor of its own. A FILE has
+    /// no such problem and prints on paper, so it draws with the weight the pattern was drawn with.
+    /// Zero when the payload states none.
+    qreal width = 0.0;
 };
 
 /// A print run: where every piece stands, and how much paper it takes.
@@ -118,6 +126,22 @@ struct PrintPlan
 {
     bool ok = false;
     QString error;
+
+    /// The format the run was laid for, by its token — what the canvas names the run by, and the
+    /// only thing that says which paper the sheets are.
+    QString modelToken;
+
+    /// **Black and solid, whatever the pattern's own line says.** Asked for when the run prints a
+    /// SINGLE size: a size's colour and dashes exist to tell sizes apart, and with one size they tell
+    /// nothing — they only make a real pattern's fine dots (0,46 mm of ink every 2,82 mm) disappear
+    /// at the scale a plan is shown. Kept in the run, so the canvas and any file drawn from it answer
+    /// the same.
+    bool plainOutline = false;
+
+    /// How long the laying out took, in seconds, measured around the engine. The figure the user
+    /// reads is the time HER plan cost, so it travels inside the plan rather than being counted by
+    /// whoever happened to call it.
+    double seconds = 0.0;
 
     /// The bin, and the height the nesting came out at.
     double binWidthPx = 0.0;
@@ -144,6 +168,15 @@ struct PrintPlan
     /// can be read again after a hand has moved a piece.
     QRectF reservedPx;
 
+    /// How many PAGES the run prints: one per sheet that carries ink — or ONE for a roll and for the
+    /// A0 sheet, which are not cut into sheets at all — plus the cover page when it stands on a
+    /// sheet of its own.
+    ///
+    /// The one place this is answered: the canvas writes it under the drawing, the info dialogue
+    /// counts it, and the command-line tool prints it. Three readings of « how many sheets does this
+    /// run take » would be three answers waiting to disagree.
+    auto Pages(bool coverHasItsOwnSheet) const -> int;
+
     /// Reads the sheets again from where the pieces ARE.
     ///
     /// The tiling does not move — its grid is the plan's — but the paper follows the ink: emptying
@@ -162,10 +195,15 @@ struct PrintPlan
     /// @param columns       sheets side by side; 0 or 1 for a roll
     /// @param sheetHeightMm the sheet's long side, in millimetres — 0 for a roll
     /// @param coverBlockPx  the rectangle the cover page reserves, when its seat is InSheet
+    /// @param modelToken    the format's token, kept as the run's own fact
+    /// @param plainOutline  true to draw every piece black and solid instead of with the pattern's
+    ///                      own line — the user's choice, and only ever offered for a single size
     static PrintPlan Generate(const ImportedDocument &document, const QStringList &sizeIds,
                               const QStringList &pieceNames, double marginCm, double gapCm,
                               double binWidthPx, int columns, double sheetHeightMm,
-                              const QRectF &coverBlockPx = QRectF());
+                              const QRectF &coverBlockPx = QRectF(),
+                              const QString &modelToken = QString(),
+                              bool plainOutline = false);
 };
 
 #endif // PRINTPLAN_H

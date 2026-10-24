@@ -147,12 +147,95 @@ OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, QWidget *parent)
 
     layout->addWidget(piecesBox);
 
-    if (!plan.ok)
+    Finish(layout, plan.ok ? QString() : plan.error);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+OutputInfoDialog::OutputInfoDialog(const PrintInfo &print, QWidget *parent) : QDialog(parent)
+{
+    setWindowTitle(print.title);
+    setModal(true);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(16, 16, 16, 12);
+    layout->setSpacing(12);
+
+    // ── Ce qui a été demandé ───────────────────────────────────────────────────────────────────
+    //
+    // **The paper's own settings, and nothing of the cloth.** A print run is asked for a format, how
+    // many sheets side by side, and two spacings — the margin from the sheet's edge and the space
+    // between two pieces. There is no fabric width, no fold and no direction here: those questions
+    // belong to the cutting plan, and answering them with a zero would be answering about a plan
+    // that does not exist.
+    auto *asked = new QGroupBox(tr("What this output was asked for"), this);
+    auto *askedForm = new QFormLayout(asked);
+    AddRow(askedForm, tr("Print model"), print.format);
+
+    // A roll — and the A0 sheet — is one column wide by definition: it has no count, so it gets no
+    // line. A count that can only be one is a question with no answer in it.
+    if (print.hasColumns)
     {
-        auto *error = new QLabel(plan.error, this);
-        error->setWordWrap(true);
-        error->setObjectName(QStringLiteral("importError"));
-        layout->addWidget(error);
+        AddRow(askedForm, tr("Columns"), QString::number(print.columns));
+    }
+
+    AddRow(askedForm, tr("Document margin"), Cm(print.marginCm));
+    AddRow(askedForm, tr("Space between pieces"), Cm(print.gapCm));
+    layout->addWidget(asked);
+
+    // ── Ce qu'il a produit ─────────────────────────────────────────────────────────────────────
+    auto *made = new QGroupBox(tr("What it produced"), this);
+    auto *madeForm = new QFormLayout(made);
+
+    // **The pages, and the cover page said out loud.** It is printed, so it counts — and a count
+    // that quietly includes a page the run never laid out on the grid would be a figure she could
+    // not reconcile with the canvas, which draws that page on a sheet of its own.
+    AddRow(madeForm, tr("Pages"),
+           print.coverPage ? tr("%n page(s), cover page included", nullptr, print.pages)
+                           : tr("%n page(s)", nullptr, print.pages));
+
+    if (print.seconds > 0.0)
+    {
+        AddRow(madeForm, tr("Time"), tr("%1 s").arg(print.seconds, 0, 'f', 1));
+    }
+    layout->addWidget(made);
+
+    // ── Les pièces ─────────────────────────────────────────────────────────────────────────────
+    //
+    // **One line per piece, and how many sizes it is printed at.** A print run lays every piece at
+    // every size of the range, so the piece count is the pattern's, never the number of shapes put
+    // on the paper.
+    auto *piecesBox = new QGroupBox(tr("Pieces"), this);
+    auto *piecesLayout = new QVBoxLayout(piecesBox);
+    piecesLayout->setSpacing(6);
+    piecesLayout->addWidget(new QLabel(tr("Pieces: %1").arg(print.pieces.size()), piecesBox));
+
+    if (print.sizes > 0)
+    {
+        piecesLayout->addWidget(new QLabel(tr("Printed for %n size(s)", nullptr, print.sizes),
+                                           piecesBox));
+    }
+
+    for (const QString &name : print.pieces)
+    {
+        auto *row = new QLabel(name, piecesBox);
+        row->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        piecesLayout->addWidget(row);
+    }
+
+    layout->addWidget(piecesBox);
+
+    Finish(layout, QString());
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void OutputInfoDialog::Finish(QVBoxLayout *layout, const QString &error)
+{
+    if (!error.isEmpty())
+    {
+        auto *label = new QLabel(error, this);
+        label->setWordWrap(true);
+        label->setObjectName(QStringLiteral("importError"));
+        layout->addWidget(label);
     }
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);

@@ -27,6 +27,8 @@
 #ifndef EXPORTPRINTMODEL_H
 #define EXPORTPRINTMODEL_H
 
+#include "core/print/exportpaper.h"
+
 #include <QString>
 #include <QVector>
 
@@ -78,9 +80,26 @@ struct ExportPrintModel
 
     CoverSeat coverSeat{CoverSeat::InSheet};
 
+    /// The pair of papers this format belongs to — what a run of it may be printed on.
+    ///
+    /// **The pair, not every paper big enough.** A framed A4/Letter sheet is 190 × 259 mm, which
+    /// happens to fit inside an A3 and an A0 as well; printing it there would be a plan on a sheet
+    /// of the wrong size in a tiling meant for another, and nobody would see it until the sheets did
+    /// not meet. The format knows its paper; the paper is deduced from the sheet only WITHIN it.
+    ExportPaper::Family family{ExportPaper::Family::A4Letter};
+
     /// False for the A0 sheet and for the roll: the format is exactly one column wide by
     /// definition, and offering a count would offer a plan that no such paper can hold.
     bool hasColumns{false};
+
+    /// The count the format opens on, before the user has chosen one — the creator's counts:
+    /// five for the A4/Letter tier, three for the A3/Tabloid one, and a count of one wherever
+    /// there is no count at all. **Declared, never derived**, as `hasFrame` is: Ostara computes
+    /// it as `ceil(841 / width)` (`oexporttiledformatwidget.cpp:96`), which lands on the same
+    /// figure for A3, A4 and A4/Letter framed and on a different one for the three others
+    /// (Tabloid, Letter, A3/Tabloid framed) — the table says the creator's, and the divergence
+    /// is reported rather than smoothed over.
+    int defaultColumns{1};
 
     /// False for the A0 sheet: it is in the table so that a payload naming it is understood, but
     /// it is not offered — there is no way to reach it from the interface.

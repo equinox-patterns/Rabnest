@@ -28,10 +28,16 @@
 
 #include "app/print/printitems.h"
 #include "core/print/exportcoverpage.h"
+#include "core/print/exportprintmodel.h"
 #include "core/print/printmetrics.h"
 #include "core/print/printplan.h"
 
+#include <QCoreApplication>
 #include <QGraphicsPathItem>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QScrollBar>
+#include <QTimer>
 #include <QGraphicsPolygonItem>
 #include <QPainterPath>
 #include <QGraphicsScene>
@@ -49,12 +55,42 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace
 {
 constexpr double kCmPerPx = 2.54 / 96.0;
 constexpr double kScale = 1000000.0;
 constexpr double kMmPerPx = 25.4 / 96.0;
+
+/// **Ostara's hairline, and the one width a printed plan is drawn with.** Every piece of her preview
+/// carries the pen `WidthHairLine()` states — her pattern's line width (1.2 mm by default) divided by
+/// three, at 96 dpi — whatever the paper, black or in its size's colour
+/// (`vlayoutpiece.cpp:1710-1712`, `vcommonsettings.cpp:1914`). A pen that follows the ZOOM instead,
+/// as the cutting plan's does, draws a print run four times too fat when the plan is fitted: one
+/// device pixel, where Ostara draws four tenths of one, and every dash four times too long.
+constexpr double kHairlinePx = 1.2 / 3.0 / 25.4 * 96.0;
+
+/// **What a printed piece is drawn with on the SCREEN.** The hairline is the pattern's own width, and
+/// it is the truth — but a plan fitted to the canvas is drawn about an eighth of its size, where a
+/// hairline of four tenths of a device pixel is not a thin line, it is a pale one: a run of two or
+/// three sizes reads as a heap of colour rather than as contours. So the canvas keeps a floor of
+/// seven tenths of a device pixel, and only a floor — a plan zoomed in still reaches the pattern's
+/// exact hairline.
+///
+/// ⚠️ **The screen's, never the file's.** A drawing goes out with the pen the pattern states
+/// (`kHairlinePx`); `RenderPlan` puts the file's width back before it renders. Thickening the file
+/// would thicken the pattern — the opposite of porting it.
+constexpr double kPrintCanvasFloorPx = 0.7;
+
+/// **And the DASHES are not drawn at all on the canvas — every size gets a plain line, its colour
+/// kept.** A pattern writes its sizes apart with a colour AND a dash: size 32 of a real pattern is
+/// 0,46 mm of ink every 2,82 mm, which is a fine dotted line at 1:1 on paper and a third of a device
+/// pixel — a mist — at the scale a plan is shown. A legibility floor on the pattern made it a dotted
+/// line again, still fine, still hard to read with a single size on the sheet; a plain line is what
+/// is actually readable, and the colour still tells two sizes apart. The dashes are not lost: the
+/// FILE is drawn with them, exactly as the pattern states (`RenderPlan`, file mode).
+constexpr bool kCanvasKeepsDashes = false;
 
 /// The width of a piece's line, in scene pixels — the thickness it has at 100 %, and the thickness it
 /// keeps when the view is enlarged. The floor is the SCREEN's; `WorkspacePage::kLineFloorPx` states it
@@ -295,6 +331,15 @@ WorkspacePage::WorkspacePage(QWidget *parent)
     m_view->setBackgroundBrush(QColor(0xEF, 0xEF, 0xEF));
     right->addWidget(m_view, 1);
 
+    // The fit is taken again whenever the viewport changes size — see `eventFilter`. A resize is
+    // not a signal the view emits, so the one object that has the size is watched instead.
+    m_view->viewport()->installEventFilter(this);
+
+    // The SPACE key belongs to the whole window, not to the canvas: it is held to pan, and the
+    // focus may well be in the dock when it is pressed. It is therefore watched at the application's
+    // own door — see `eventFilter`.
+    qApp->installEventFilter(this);
+
     auto *panel = new QWidget(this);
     panel->setObjectName(QStringLiteral("outputsPanel"));
     auto *panelLayout = new QHBoxLayout(panel);
@@ -319,6 +364,83 @@ void WorkspacePage::Clear()
 {
     m_scene->clear();
     m_detail->clear();
+    m_zoomed = false;
+    m_printMode = false;
+    m_printItems.clear();
+    m_dragItem = nullptr;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+bool WorkspacePage::eventFilter(QObject *watched, QEvent *event)
+{
+    // ── La barre d'espace ──────────────────────────────────────────────────────────────────────
+    //
+    // **Held, the space bar means "move around", and a click then pans — it never takes a piece.**
+    // The state is kept here because the press arrives on the viewport, where the key is long gone.
+    // It is dropped when the window stops being active: a release that happens in another
+    // application is a release this canvas never sees, and a stuck space bar would leave the plan
+    // impossible to rearrange.
+    if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease)
+    {
+        auto *key = static_cast<QKeyEvent *>(event);
+
+        // Only a key pressed IN THIS WINDOW: a space typed in a dialogue belongs to the dialogue.
+        auto *receiver = qobject_cast<QWidget *>(watched);
+        const bool ours = receiver != nullptr && receiver->window() == window();
+
+        if (ours && key->key() == Qt::Key_Space)
+        {
+            if (event->type() == QEvent::KeyPress)
+            {
+                m_spaceHeld = true;
+            }
+            else if (!key->isAutoRepeat())
+            {
+                m_spaceHeld = false;
+            }
+        }
+    }
+    else if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::ApplicationDeactivate)
+    {
+        m_spaceHeld = false;
+    }
+
+    if (watched == m_view->viewport() && event->type() == QEvent::Resize && !m_zoomed)
+    {
+        FitToScene();
+    }
+
+    // The gesture of a piece is taken here, below the view's own handling — see
+    // `WorkspacePage::HandlePrintDrag`, defined with the item it moves.
+    if (watched == m_view->viewport() && HandlePrintDrag(event))
+    {
+        return true;
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::FitToScene()
+{
+    if (m_view == nullptr || m_scene == nullptr || m_fitting)
+    {
+        return;
+    }
+
+    const QRectF rect = m_scene->sceneRect();
+    if (rect.isEmpty())
+    {
+        return;
+    }
+
+    // ⚠️ **The fit can ask for the resize it is answering.** Fitting changes the scrollbars, a
+    // scrollbar changes the viewport, and the resize comes back here — so the call is guarded, and
+    // the second pass is skipped rather than run against a size that is still moving.
+    m_fitting = true;
+    m_view->fitInView(rect, Qt::KeepAspectRatio);
+    RefreshLineWidth();
+    m_fitting = false;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -355,6 +477,7 @@ void WorkspacePage::ZoomBy(double factor)
         return;
     }
 
+    m_zoomed = true;
     m_view->scale(factor, factor);
 
     const QPointF after = m_view->mapToScene(viewportCentre);
@@ -379,48 +502,11 @@ void WorkspacePage::RefreshLineWidth()
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void WorkspacePage::RefreshLineWidth(double scale, double floor)
-{
-    if (m_scene == nullptr)
-    {
-        return;
-    }
-
-    for (QGraphicsItem *item : m_scene->items())
-    {
-        if (auto *path = dynamic_cast<PatternPathItem *>(item); path != nullptr)
-        {
-            path->SetViewScale(scale, floor);
-        }
-    }
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-void WorkspacePage::RenderPlan(QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx,
-                              double floorPx)
-{
-    if (painter == nullptr || m_scene == nullptr || sourcePx.isEmpty() || targetPx.isEmpty())
-    {
-        return;
-    }
-
-    // How many device pixels one scene pixel becomes in the file — the scale the strokes must be
-    // sized for.
-    const double scale = targetPx.width() / sourcePx.width();
-
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter->setFont(m_scene->font());
-
-    RefreshLineWidth(scale, floorPx);
-    m_scene->render(painter, targetPx, sourcePx, Qt::IgnoreAspectRatio);
-    RefreshLineWidth();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
 void WorkspacePage::Draw(const CutPlan &plan)
 {
     m_printMode = false;
+    m_printItems.clear(); // the items of a print run are gone with its scene
+    m_dragItem = nullptr;
     m_scene->clear();
 
     if (!plan.ok)
@@ -555,8 +641,8 @@ void WorkspacePage::Draw(const CutPlan &plan)
 
     m_scene->setSceneRect(
         QRectF(-20.0, -20.0, plan.binWidthPx + 40.0, plan.usedHeightPx + 40.0));
-    m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
-    RefreshLineWidth();
+    m_zoomed = false; // a plan put on screen is looked at WHOLE
+    FitToScene();
 
     // The same line Ostara writes under its cut plan: the cloth in the unit it is bought in, then the
     // same two figures in the units somebody else buys it in — inches for the width, yards for the
@@ -583,55 +669,355 @@ void WorkspacePage::Draw(const CutPlan &plan)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-/// One piece of a print run, and the only thing of it a hand can take.
+/// **Ostara's holder, and the one ink a hand's gesture shows.** The frame drawn around a footprint
+/// being moved is hers to the pixel: `QColor(0, 122, 204)`, a DASHED cosmetic pen — width 0, so one
+/// device pixel whatever the zoom — and nothing filled (`oexportholder.cpp:48`, `:205-207`).
+const QColor kHolderColour(0, 122, 204);
+
+/// One size's drawing, with the line it is drawn by: its own colour, its own dashes.
+struct PrintInk
+{
+    QPainterPath shape;
+    QColor colour;
+    QVector<qreal> dashes;
+};
+
+/// **One FOOTPRINT, and every size it prints.** The engine places one footprint per piece — the
+/// union of that piece over the sizes being printed — so the sizes of one piece stand at ONE
+/// placement, and a hand that takes one takes them all.
 ///
-/// **It carries its placement and not its geometry**: the outline it was drawn with is the size's
-/// own, and the frame it stands in belongs to the footprint the engine placed — the union of that
-/// piece over the sizes being printed. Moving one size therefore moves every size of that piece,
-/// which is what a graded plan means.
+/// ⚠️ **They therefore move together DURING the gesture, and not only once it is over.** A single
+/// item per size moved on its own would drag one outline out of a graded drawing and put the others
+/// back on release — the gesture would show one size and commit ten. The item carries the whole
+/// footprint, so what the hand moves is what the plan is.
 ///
-/// The move is applied on RELEASE, not while dragging: the sheets have to be read again when the
-/// piece has landed, and reading them mid-gesture would rebuild the scene under the hand that is
-/// still holding it.
-class PrintPieceItem : public PatternPathItem
+/// The move is applied to the PLAN on release, and only then: the sheets are read again from where
+/// the pieces stand, and reading them mid-gesture would rebuild the scene under the hand holding it.
+class PrintPlacementItem : public QGraphicsItem
 {
 public:
-    PrintPieceItem(const QPainterPath &shape, const QPen &pen, int placementIndex,
-                   WorkspacePage *page)
-      : PatternPathItem(shape, pen), m_placementIndex(placementIndex), m_page(page)
+    PrintPlacementItem(QVector<PrintInk> inks, int placementIndex, bool plain)
+      : m_inks(std::move(inks)), m_placementIndex(placementIndex), m_plain(plain)
     {
-        setFlag(QGraphicsItem::ItemIsMovable, true);
+        // ⚠️ **Not `ItemIsMovable`, and the gesture is not the item's.** A view in `ScrollHandDrag`
+        // keeps the drags it starts, and whether it hands one to an item is a detail of the view's
+        // own state — a drag that answers "sometimes" is a drag that does not answer at all. The
+        // page takes the gesture on the viewport, where it cannot be swallowed, and moves the item
+        // (see `WorkspacePage::eventFilter`).
+        setFlag(QGraphicsItem::ItemIsMovable, false);
         setFlag(QGraphicsItem::ItemIsSelectable, false);
+        setAcceptedMouseButtons(Qt::NoButton);
         setCursor(Qt::OpenHandCursor);
+
+        for (const PrintInk &ink : m_inks)
+        {
+            m_bounds = m_bounds.united(ink.shape.boundingRect());
+        }
+
+        // Half the hairline, twice: the frame and the strokes must not be shaved by the item's own
+        // rectangle.
+        m_bounds.adjust(-2.0, -2.0, 2.0, 2.0);
     }
 
     /// **Grabbed by its SURFACE, never by its outline alone.** The item is drawn unfilled, and a
     /// path item's own shape follows the stroke it draws — so the piece could only be taken by the
     /// line, and a piece one has to click exactly on the line of is a piece one cannot move. The
     /// filled path is the same answer Ostara's own hit item gives.
-    auto shape() const -> QPainterPath override { return path(); }
-
-protected:
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override
+    auto shape() const -> QPainterPath override
     {
-        QGraphicsPathItem::mouseReleaseEvent(event);
+        // ⚠️ **`WindingFill`, and the drag depends on it.** Qt's default rule is `OddEvenFill`: a
+        // point covered by an EVEN number of outlines is OUTSIDE the shape. The sizes of one
+        // footprint are drawn almost on top of each other, so a point in the middle of a piece is
+        // covered by every one of them — two sizes gave a surface of nothing at all, and the piece
+        // could not be taken by the hand, while one size worked and three sometimes did. Winding
+        // fills every contour the same way round, which is what "the piece's surface" means.
+        QPainterPath all;
+        all.setFillRule(Qt::WindingFill);
+        for (const PrintInk &ink : m_inks)
+        {
+            all.addPath(ink.shape);
+        }
+        return all;
+    }
 
-        // With ItemIsMovable the item is moved by its own POSITION, its path untouched — so the
-        // gesture is read there, and put back to zero before the scene is drawn again.
-        const QPointF delta = pos();
-        if (delta.isNull())
+    auto boundingRect() const -> QRectF override { return m_bounds; }
+
+    /// The frame is what says a gesture is on: the page raises it when a hand takes the piece and
+    /// drops it when the hand lets go.
+    void SetMoving(bool moving)
+    {
+        if (m_moving == moving)
         {
             return;
         }
 
-        setPos(QPointF());
-        m_page->MovePrintPiece(m_placementIndex, delta);
+        m_moving = moving;
+        update();
     }
 
-private:
+    /// What the gesture moves: the item itself, and everything laid with it — the drawing of the
+    /// piece, its cartouche, its annotations, its miniature, its grain line.
+    void DragBy(const QPointF &step)
+    {
+        moveBy(step.x(), step.y());
+
+        for (QGraphicsItem *follower : m_followers)
+        {
+            follower->moveBy(step.x(), step.y());
+        }
+    }
+
+    /// The one pen of a run drawn without the pattern's own line: black, solid. What the user asked
+    /// for when the run prints a SINGLE size, where a size's colour and dashes distinguish nothing
+    /// and only make the drawing hard to read.
+    static auto PlainPen(double width) -> QPen
+    {
+        QPen pen(Qt::black);
+        pen.setWidthF(width);
+        pen.setStyle(Qt::SolidLine);
+        pen.setCapStyle(Qt::SquareCap);
+        return pen;
+    }
+
+    /// The width for the zoom the CANVAS is at: the pattern's hairline, and never thinner than the
+    /// floor that keeps it visible on a fitted plan.
+    void SetCanvasScale(double viewScale)
+    {
+        m_canvas = true;
+        SetLineWidth(viewScale > 0.0 ? std::max(kHairlinePx, kPrintCanvasFloorPx / viewScale)
+                                     : kHairlinePx);
+    }
+
+    /// The width a FILE is drawn with — the pattern's own, whatever the canvas looks like, and with
+    /// the dashes the pattern states rather than the canvas's legibility floor.
+    void SetFileWidth(double width)
+    {
+        m_canvas = false;
+        SetLineWidth(width);
+    }
+
+    auto PlacementIndex() const -> int { return m_placementIndex; }
+
+    void SetFollowers(const QVector<QGraphicsItem *> &followers) { m_followers = followers; }
+
+protected:
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
+    {
+        painter->setBrush(Qt::NoBrush);
+        for (const PrintInk &ink : m_inks)
+        {
+            // The canvas never dashes: the pattern's line is drawn plain, in its own colour. The
+            // file gets the pattern's own dashes back — see `kCanvasKeepsDashes`.
+            const QVector<qreal> dashes = (m_canvas && !kCanvasKeepsDashes) ? QVector<qreal>()
+                                                                            : ink.dashes;
+            painter->setPen(m_plain ? PlainPen(m_lineWidth)
+                                    : PrintPen(ink.colour, dashes, m_lineWidth));
+            painter->drawPath(ink.shape);
+        }
+
+        if (!m_moving)
+        {
+            return;
+        }
+
+        // Cosmetic, so the frame stays a hairline at every zoom — Ostara's own reason for a width of
+        // zero (`oexportholder.cpp:203-205`).
+        painter->setPen(QPen(kHolderColour, 0.0, Qt::DashLine));
+        painter->drawRect(m_bounds);
+    }
+
+    /// The pen of a printed piece: Ostara's hairline, the size's colour, and the dashes divided by
+    /// the width — a Qt pattern counts in WIDTHS, so a pixel length has to be divided by the pen
+    /// that draws it. Her own conversion, to the letter (`ogratedsizestyles.cpp:148-159`).
+    static auto PrintPen(const QColor &colour, const QVector<qreal> &dashes, double width) -> QPen
+    {
+        QPen pen(colour);
+        pen.setWidthF(width);
+
+        if (dashes.isEmpty())
+        {
+            pen.setStyle(Qt::SolidLine);
+            pen.setCapStyle(Qt::SquareCap);
+            return pen;
+        }
+
+        QVector<qreal> pattern;
+        pattern.reserve(dashes.size());
+        for (const qreal length : dashes)
+        {
+            pattern.append(length / width);
+        }
+
+        pen.setStyle(Qt::CustomDashLine);
+        pen.setDashPattern(pattern);
+        pen.setCapStyle(Qt::FlatCap);
+        return pen;
+    }
+
+    void SetLineWidth(double width)
+    {
+        if (std::abs(m_lineWidth - width) < 1e-6)
+        {
+            return;
+        }
+
+        m_lineWidth = width;
+        update();
+    }
+
+    QVector<PrintInk> m_inks;
+    QVector<QGraphicsItem *> m_followers;
+    double m_lineWidth = kHairlinePx;
+    bool m_canvas = true;
+
+    /// Black and solid, whatever the size's own line says — a run of ONE size, when the user asked
+    /// for it.
+    bool m_plain = false;
+    QRectF m_bounds;
     int m_placementIndex{-1};
-    WorkspacePage *m_page{nullptr};
+    bool m_moving{false};
 };
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RefreshLineWidth(double scale, double floor)
+{
+    if (m_scene == nullptr)
+    {
+        return;
+    }
+
+    for (QGraphicsItem *item : m_scene->items())
+    {
+        if (auto *path = dynamic_cast<PatternPathItem *>(item); path != nullptr)
+        {
+            path->SetViewScale(scale, floor);
+        }
+    }
+
+    // A printed piece is not a `PatternPathItem` — it draws several inks, each with its own pen —
+    // so its width is stated here, for the same reason and at the same moment.
+    for (QGraphicsItem *item : m_printItems)
+    {
+        static_cast<PrintPlacementItem *>(item)->SetCanvasScale(scale);
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void WorkspacePage::RenderPlan(QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx,
+                              double floorPx)
+{
+    if (painter == nullptr || m_scene == nullptr || sourcePx.isEmpty() || targetPx.isEmpty())
+    {
+        return;
+    }
+
+    // How many device pixels one scene pixel becomes in the file — the scale the strokes must be
+    // sized for.
+    const double scale = targetPx.width() / sourcePx.width();
+
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter->setFont(m_scene->font());
+
+    RefreshLineWidth(scale, floorPx);
+
+    // ⚠️ **The FILE is drawn with the pattern's hairline, not with the screen's floor.** The canvas
+    // is allowed a little more so a fitted plan stays readable; a drawing is not.
+    for (QGraphicsItem *item : m_printItems)
+    {
+        static_cast<PrintPlacementItem *>(item)->SetFileWidth(kHairlinePx);
+    }
+
+    m_scene->render(painter, targetPx, sourcePx, Qt::IgnoreAspectRatio);
+
+    for (QGraphicsItem *item : m_printItems)
+    {
+        static_cast<PrintPlacementItem *>(item)->SetCanvasScale(scale);
+    }
+
+    RefreshLineWidth();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+bool WorkspacePage::HandlePrintDrag(QEvent *event)
+{
+    if (!m_printMode || m_printItems.isEmpty())
+    {
+        return false;
+    }
+
+    if (event->type() == QEvent::MouseButtonPress)
+    {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+
+        // A hand holding space is moving the drawing, not taking a piece: the press falls through to
+        // the view, which pans with it.
+        if (mouse->button() != Qt::LeftButton || m_dragItem != nullptr || m_spaceHeld)
+        {
+            return false;
+        }
+
+        const QPointF scenePos = m_view->mapToScene(mouse->position().toPoint());
+        for (QGraphicsItem *candidate : m_printItems)
+        {
+            auto *item = static_cast<PrintPlacementItem *>(candidate);
+            if (!item->shape().contains(item->mapFromScene(scenePos)))
+            {
+                continue;
+            }
+
+            m_dragItem = item;
+            m_dragLast = scenePos;
+            m_dragTotal = QPointF();
+            item->SetMoving(true);
+            return true;
+        }
+
+        return false;
+    }
+
+    if (m_dragItem == nullptr)
+    {
+        return false;
+    }
+
+    auto *item = static_cast<PrintPlacementItem *>(m_dragItem);
+
+    if (event->type() == QEvent::MouseMove)
+    {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        const QPointF scenePos = m_view->mapToScene(mouse->position().toPoint());
+        const QPointF step = scenePos - m_dragLast;
+        m_dragLast = scenePos;
+        m_dragTotal += step;
+
+        if (!step.isNull())
+        {
+            item->DragBy(step);
+        }
+        return true;
+    }
+
+    if (event->type() == QEvent::MouseButtonRelease)
+    {
+        m_dragItem = nullptr;
+        item->SetMoving(false);
+
+        const QPointF delta = m_dragTotal;
+        m_dragTotal = QPointF();
+
+        // ⚠️ **The item is left where the hand put it.** The scene is drawn again one turn later,
+        // from the placement — putting the item back here would make the piece jump home for a
+        // frame, under the hand that has just let go.
+        if (!delta.isNull())
+        {
+            MovePrintPiece(item->PlacementIndex(), delta);
+        }
+        return true;
+    }
+
+    return false;
+}
 
 //---------------------------------------------------------------------------------------------------------------------
 void WorkspacePage::ShowPrint(const PrintPlan &plan, const ExportTemplate &decor, bool framed,
@@ -652,13 +1038,22 @@ void WorkspacePage::ShowPrint(const PrintPlan &plan, const ExportTemplate &decor
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void WorkspacePage::RedrawPrint()
+void WorkspacePage::RedrawPrint(bool refit)
 {
     const PrintPlan &plan = m_printPlan;
     const ExportTemplate &decor = m_printDecor;
     const bool framed = m_printFramed;
 
+    // ⚠️ **A redraw is not a new drawing.** When the plan is put on screen the view is fitted to it;
+    // when a hand has moved a piece, the plan is only redrawn — and re-fitting there would undo the
+    // zoom the hand had just taken, and slide the drawing out from under the gesture's own result.
+    const QTransform viewTransform = m_view->transform();
+    const int scrollX = m_view->horizontalScrollBar()->value();
+    const int scrollY = m_view->verticalScrollBar()->value();
+
     m_scene->clear();
+    m_printFollowers.clear();
+    m_printItems.clear();
 
     if (!plan.ok)
     {
@@ -726,31 +1121,19 @@ void WorkspacePage::RedrawPrint()
     // **No fill.** A printed plan is a drawing of the pieces, not a plan of the cloth: Ostara's
     // print canvas paints the outlines and nothing inside them — the coloured fill belongs to the
     // cutting plan, where a piece is something to cut out.
+    //
+    // One ITEM per footprint, and not one per size: the gesture that takes a piece takes its
+    // placement, so ten sizes of one piece are one thing to the hand (see `PrintPlacementItem`).
+    QHash<int, QVector<PrintInk>> inks;
 
-    for (int layerIndex = 0; layerIndex < plan.layers.size(); ++layerIndex)
+    for (const PrintLayer &layer : plan.layers)
     {
-        const PrintLayer &layer = plan.layers.at(layerIndex);
-
-        // **The decor belongs to ONE size, and never to all of them.** Ostara's canvas draws it on the
-        // reference layer — the smallest size of the range, the first the payload writes — and lets
-        // every other size draw its own ink only; a cartouche, an annotation or a grain line
-        // repeated once per size would be a drawing of the same words ten times over. The payload
-        // carries a copy per size all the same: the copy is a lookup key, not a decision to draw ten
-        // of them. The run's own order is largest first, so the flag comes from the payload.
+        // **The children belong to ONE size, and never to all of them.** Ostara's canvas draws them
+        // on the first layer of the range — its smallest size — and lets every other size draw its
+        // own ink only; a cartouche, an annotation or a grain line repeated once per size would be
+        // a drawing of the same words ten times over. The payload carries a copy per size all the
+        // same: the copy is a lookup key, not a decision to draw ten of them.
         const bool reference = layer.reference;
-
-        // The size's own line, as the payload drew it: its colour, and its dash pattern when it
-        // has one. A Qt pattern counts in multiples of the pen width, so the pixels the SVG states
-        // are divided by it — the same conversion Ostara's DashPen makes.
-        // Its width follows the zoom — see `PatternPen`.
-        QPen piecePen(layer.colour);
-        if (!layer.dashes.isEmpty())
-        {
-            // The pen is one pixel wide, so the pattern's own pixel lengths are already the
-            // multiples of the pen width Qt asks for.
-            piecePen.setStyle(Qt::CustomDashLine);
-            piecePen.setDashPattern(layer.dashes);
-        }
 
         for (const PrintPiece &piece : layer.pieces)
         {
@@ -782,8 +1165,20 @@ void WorkspacePage::RedrawPrint()
                 shape.addPolygon(placed);
             }
 
-            auto *item = new PrintPieceItem(shape, piecePen, piece.placementIndex, this);
-            m_scene->addItem(item);
+            if (shape.isEmpty())
+            {
+                continue;
+            }
+
+            // The same rule when one piece is read alone: its seam allowance is a ring inside its
+            // contour, and an even-odd reading would make the inside of the piece a hole.
+            shape.setFillRule(Qt::WindingFill);
+
+            PrintInk ink;
+            ink.shape = shape;
+            ink.colour = layer.colour;
+            ink.dashes = layer.dashes;
+            inks[piece.placementIndex].append(ink);
 
             // The piece's own drawing, laid by the same frame as its outline — the same rule the
             // cutting plan's canvas applies, and the same transform.
@@ -803,9 +1198,23 @@ void WorkspacePage::RedrawPrint()
 
                     item->setTransform(transform);
                     m_scene->addItem(item);
+                    m_printFollowers[piece.placementIndex].append(item);
                 }
             }
         }
+    }
+
+    for (int index = 0; index < static_cast<int>(plan.placements.size()); ++index)
+    {
+        if (!inks.contains(index))
+        {
+            continue;
+        }
+
+        auto *item = new PrintPlacementItem(inks.value(index), index, plan.plainOutline);
+        item->SetFollowers(m_printFollowers.value(index));
+        m_scene->addItem(item);
+        m_printItems.append(item);
     }
 
     // ── Les traits de coupe ───────────────────────────────────────────────────────────────────
@@ -827,22 +1236,53 @@ void WorkspacePage::RedrawPrint()
     }
 
     m_scene->setSceneRect(sceneRect);
-    m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
-    RefreshLineWidth();
 
-    // The same figures Ostara writes under a printed plan: the cloth the run takes, then the same
-    // two in the units somebody else buys it in.
-    const double widthMm = plan.binWidthPx * kMmPerPx;
-    const double lengthMm = plan.usedHeightPx * kMmPerPx;
-
-    QString detail = tr("Document width %1 · length %2").arg(Cm(widthMm), Cm(lengthMm));
-    if (plan.grid.valid)
+    if (refit)
     {
-        detail += QStringLiteral(" · ")
-                  + tr("%n sheet(s)", nullptr, plan.sheets.count);
+        m_zoomed = false; // a run put on screen is looked at WHOLE
+        FitToScene();
+    }
+    else
+    {
+        // The same view of the same run, where the hand left it — the zoom it chose, and the corner
+        // it was looking at.
+        m_view->setTransform(viewTransform);
+        m_view->horizontalScrollBar()->setValue(scrollX);
+        m_view->verticalScrollBar()->setValue(scrollY);
+
+        // ⚠️ **And the strokes for that zoom, or the trace changes weight for no reason.** The scene
+        // is drawn again from scratch, so its items start at the pattern's hairline; without this
+        // the line was thin after a move and thick again after the next zoom — the same run, the same
+        // zoom, two different drawings. A redraw is not a new drawing.
+        RefreshLineWidth();
     }
 
-    detail += QStringLiteral(" · ") + tr("Fabric width %1 · length %2").arg(Inch(widthMm), Yards(lengthMm));
+    // ── Ce que le run dit de lui-même ───────────────────────────────────────────────────────────
+    //
+    // **The FORMAT, the PAGES, the TIME.** A printed plan is paper: it has no cloth width and no
+    // cloth length, and writing them under it was writing the cutting plan's sentence over the
+    // print's — a laize the run never chose. What it does have is a paper format (A4, Letter,
+    // A4/Letter framed, A0 roll…), a number of pages, and the time the laying out cost.
+    const ExportPrintModel *model = FindExportPrintModel(plan.modelToken);
+
+    QString detail = model != nullptr
+                         ? QCoreApplication::translate("OExportPrintModel", model->label)
+                         : tr("Unknown format");
+
+    // The run's own count of its paper: a sheet per sheet, plus the cover page when it takes one —
+    // and SAID, in brackets, because the count is higher than the sheets the grid shows and a
+    // figure one cannot reconcile with the drawing is a figure one does not trust.
+    const bool coverOnItsOwnSheet = !m_coverPaper.isEmpty();
+    detail += QStringLiteral(" · ")
+              + (coverOnItsOwnSheet ? tr("%n page(s) (cover page included)", nullptr,
+                                         plan.Pages(true))
+                                    : tr("%n page(s)", nullptr, plan.Pages(false)));
+
+    if (plan.seconds > 0.0)
+    {
+        detail += QStringLiteral(" · ") + tr("%1 s").arg(plan.seconds, 0, 'f', 1);
+    }
+
     m_detail->setText(detail);
 }
 
@@ -862,5 +1302,15 @@ void WorkspacePage::MovePrintPiece(int placementIndex, const QPointF &delta)
     // **The paper follows the ink.** A sheet the gesture emptied is not printed any more, and one
     // it put a piece back on is printed again — the same rule the layout ran, read again.
     m_printPlan.RefreshSheets();
-    RedrawPrint();
+
+    // ⚠️ **The redraw is deferred by one turn, and it is not a detail.** Redrawing clears the scene,
+    // and the scene is cleared HERE, from the mouse release of the very item it holds — deleting the
+    // object whose event handler is still on the stack, and reading its members after the return.
+    // One turn of the event loop later the gesture has ended, and there is nothing left to unmake.
+    QTimer::singleShot(0, this, [this] { RedrawPrint(/*refit=*/false); });
+
+    // **The run is announced at once, not with the redraw.** Whoever keeps the row takes it back
+    // from here — the file and the printer are made from the row — and a deferred announcement would
+    // be a turn in which the two disagree.
+    emit PrintPlanEdited();
 }

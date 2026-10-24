@@ -27,6 +27,7 @@
 
 #include "app/importoverlay.h"
 
+#include "app/busydialog.h"
 #include "app/checklistpage.h"
 #include "app/cutplanpage.h"
 #include "app/print/printpanel.h"
@@ -55,70 +56,6 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
-/// What the window says while the pieces are being laid out — **a dialogue, not a bar in a corner.**
-///
-/// A run of two sizes took half a minute on a real pattern, and thirty seconds of a window that says
-/// nothing is thirty seconds of somebody clicking twice. It is a small modal dialogue: it takes the
-/// focus, it cannot be missed, and it says which size it is on and how long it has been running.
-class BusyDialog : public QDialog
-{
-public:
-    BusyDialog(QWidget *parent)
-        : QDialog(parent)
-    {
-        setWindowTitle(QStringLiteral("Rabnest"));
-        setModal(true);
-        setWindowFlag(Qt::WindowContextHelpButtonHint, false);
-
-        auto *layout = new QVBoxLayout(this);
-        layout->setContentsMargins(24, 20, 24, 20);
-        layout->setSpacing(12);
-
-        m_label = new QLabel(tr("Laying the pieces out on the fabric…"), this);
-        m_label->setWordWrap(true);
-        layout->addWidget(m_label);
-
-        m_bar = new QProgressBar(this);
-        m_bar->setRange(0, 0);
-        m_bar->setTextVisible(false);
-        layout->addWidget(m_bar);
-
-        m_elapsed = new QLabel(tr("0.0 s"), this);
-        layout->addWidget(m_elapsed);
-
-        setFixedWidth(400);
-
-        // ⚠️ **A clock that only moves when a size finishes is a clock that looks stopped.** A size
-        // takes seconds, so the figure would sit still for exactly as long as somebody doubts it.
-        // The second count ticks on its own, ten times a second, from the moment the dialogue opens.
-        m_clock.start();
-        m_tick.setInterval(100);
-        connect(&m_tick, &QTimer::timeout, this, [this] {
-            m_elapsed->setText(tr("%1 s").arg(m_clock.elapsed() / 1000.0, 0, 'f', 1));
-        });
-        m_tick.start();
-    }
-
-    /// How far the run has got: one step per size, and the seconds it has taken so far.
-    void SetProgress(int done, int total)
-    {
-        if (total > 0)
-        {
-            m_bar->setRange(0, total);
-            m_bar->setValue(done);
-            m_label->setText(tr("Laying the pieces out on the fabric — size %1 of %2…")
-                                 .arg(done)
-                                 .arg(total));
-        }
-    }
-
-private:
-    QLabel *m_label = nullptr;
-    QProgressBar *m_bar = nullptr;
-    QLabel *m_elapsed = nullptr;
-    QElapsedTimer m_clock;
-    QTimer m_tick;
-};
 namespace
 {
 /// The card's own size: smaller than the window on every side, so the workspace stays visible around
@@ -390,7 +327,8 @@ void ImportOverlay::Generate()
                                 panel->Model() != nullptr
                                     ? QString::fromLatin1(panel->Model()->token)
                                     : QStringLiteral("A0Roll"),
-                                panel->Columns(), panel->MarginMm(), panel->GapMm());
+                                panel->Columns(), panel->MarginMm(), panel->GapMm(),
+                                panel->PlainOutline());
         }
         return;
     }
@@ -409,7 +347,9 @@ void ImportOverlay::Generate()
         return;
     }
 
-    m_busy = new BusyDialog(this);
+    m_busy = new BusyDialog(this, QStringLiteral("Rabnest"),
+                            tr("Laying the pieces out on the fabric…"),
+                            tr("Laying the pieces out on the fabric — size %1 of %2…"));
     m_busy->SetProgress(0, loaded.size());
     m_busy->show();
     Pump();

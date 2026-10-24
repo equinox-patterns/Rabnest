@@ -29,6 +29,7 @@
 
 #include "core/print/exportpaginationsettings.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDoubleSpinBox>
@@ -41,9 +42,6 @@
 
 namespace
 {
-/// The width Ostara's first column count is computed from (`oexporttiledformatwidget.cpp:46`).
-constexpr double kRollWidthMm = 841.0;
-
 /// The unit a figure is READ in. A unit of reading, never of result: every length is stored in
 /// millimetres and shown in whichever of the three the user picked, as in Ostara.
 enum class DisplayUnit : qint8
@@ -114,6 +112,7 @@ void PrintPanel::Build()
     auto *form = new QFormLayout(this);
     form->setContentsMargins(12, 8, 12, 8);
     form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_form = form;
 
     // ── The unit ───────────────────────────────────────────────────────────────────────────────
     m_unit = MakeComboBox(this);
@@ -168,6 +167,28 @@ void PrintPanel::Build()
     m_gap->setValue(0.5);
     form->addRow(tr("Space between pieces:"), m_gap);
 
+    // ── Le tracé, quand le run n'a qu'une taille ────────────────────────────────────────────────
+    //
+    // **En DERNIER, et coché.** Dernier parce que c'est une question sur le DESSIN, pas sur la
+    // feuille : elle vient après tout ce qui décide de la mise en page. Cochée parce qu'une taille
+    // seule n'a rien à distinguer par sa couleur — le tracé du patron ne fait alors que dessiner des
+    // pointillés fins qui disparaissent à l'échelle où le plan est montré. Les mots sont simples à
+    // dessein : c'est une question sur une image, pas sur un style.
+    m_plainOutline = new QCheckBox(tr("Use a plain black outline instead of the pattern's"), this);
+    m_plainOutline->setChecked(true);
+    form->addRow(m_plainOutline);
+
+    // ⚠️ **Ce que le canevas fait de TOUS les tracés, dit à l'endroit où l'on s'en étonne.** Sur le
+    // dessin, un pointillé de patron est plus fin qu'un pixel ; sur le papier il est juste. La phrase
+    // est là pour que personne ne croie que les pointillés sont perdus.
+    m_plainNote = new QLabel(this);
+    m_plainNote->setObjectName(QStringLiteral("outputDescription"));
+    m_plainNote->setWordWrap(true);
+    m_plainNote->setContentsMargins(24, 0, 0, 0);
+    form->addRow(m_plainNote);
+
+    connect(m_plainOutline, &QCheckBox::toggled, this, [this] { emit Changed(); });
+
     connect(m_unit, &QComboBox::currentIndexChanged, this, [this] {
         UpdateFromModel();
     });
@@ -176,6 +197,9 @@ void PrintPanel::Build()
         emit Changed();
     });
     connect(m_columns, &QSpinBox::valueChanged, this, [this] {
+        // A count typed is the user's from here on: no format changed afterwards rewrites it,
+        // and the plan keeps the width she asked for.
+        m_columnsChosen = true;
         UpdateFromModel();
         emit Changed();
     });
@@ -221,6 +245,14 @@ auto PrintPanel::GapMm() const -> double
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+auto PrintPanel::PlainOutline() const -> bool
+{
+    // A run of several sizes has no plain line, whatever the box last said: it would draw them all
+    // the same and they could no longer be told apart.
+    return m_singleSize && m_plainOutline->isChecked();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 auto PrintPanel::Unit() const -> int
 {
     return static_cast<int>(CurrentUnit(m_unit));
@@ -244,6 +276,27 @@ void PrintPanel::SetSizesText(const QString &text)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+void PrintPanel::SetSizeCount(int count)
+{
+    m_singleSize = count == 1;
+
+    // ⚠️ **The sentence is shown ALWAYS, the box only for one size.** The canvas draws every run with
+    // plain lines — that is what the sentence explains — so it belongs to every run. Only the
+    // sentence's last clause speaks of the box, and it is only there when the box is.
+    m_form->setRowVisible(m_plainOutline, m_singleSize);
+    m_form->setRowVisible(m_plainNote, true);
+
+    m_plainNote->setText(m_singleSize
+                             ? tr("On screen, every size is drawn with a plain line so the plan stays "
+                                  "readable. The export uses the pattern's own dashes, unless the "
+                                  "plain black outline above is asked for.",
+                                  "note under the plain-outline box")
+                             : tr("On screen, every size is drawn with a plain line so the plan stays "
+                                  "readable. The export uses each size's own dashes.",
+                                  "note about the canvas, when the run has several sizes"));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void PrintPanel::SetModel(const QString &token, int columns)
 {
     // Setting the panel up is not the user changing it: without this, opening the panel on the
@@ -259,6 +312,10 @@ void PrintPanel::SetModel(const QString &token, int columns)
         // own when the model changes, and a column count restored afterwards is the creator's.
         m_model->setCurrentIndex(index);
     }
+
+    // A count the run was nested with is a chosen one: it survives the model it is put on, which
+    // is what the flag means everywhere else in this panel.
+    m_columnsChosen = columns > 0;
     m_columns->setValue(columns > 0 ? columns : m_columns->value());
     UpdateFromModel();
 }
@@ -285,7 +342,7 @@ void PrintPanel::UpdateFromModel()
     {
         m_sheetSize->clear();
         m_documentWidth->clear();
-        m_columns->setEnabled(false);
+        m_form->setRowVisible(m_columns, false);
         return;
     }
 
@@ -306,12 +363,20 @@ void PrintPanel::UpdateFromModel()
                                           .arg(UnitLabel(unit))));
     }
 
-    // The column count is the user's, but a format that has none has exactly one — and a format
-    // that has some opens on the count Ostara opens on: the roll's width divided by a sheet.
-    m_columns->setEnabled(model->hasColumns);
+    // The column count is the user's, but a format that has none has exactly one — and it offers
+    // no field at all: a count on a roll has one answer, and a field that can only say it is a
+    // question the paper has already answered. The whole ROW goes, label included.
+    m_form->setRowVisible(m_columns, model->hasColumns);
     if (!model->hasColumns)
     {
+        // Back to one, so a document width is never computed from a count the paper cannot
+        // hold — but the flag stays: a count she typed is still hers when she comes back to a
+        // format that has one.
         m_columns->setValue(1);
+    }
+    else if (!m_columnsChosen)
+    {
+        m_columns->setValue(model->defaultColumns);
     }
 
     m_documentWidth->setText(QStringLiteral("%1 %2")

@@ -41,14 +41,20 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/layerspage.h
     src/app/cutplanpage.cpp
     src/app/cutplanpage.h
+    src/app/busydialog.cpp
+    src/app/busydialog.h
     src/app/importoverlay.cpp
     src/app/importoverlay.h
     src/app/outputinfodialog.cpp
     src/app/outputinfodialog.h
     src/app/exportimagedialog.cpp
     src/app/exportimagedialog.h
+    src/app/exportpdfdialog.cpp
+    src/app/exportpdfdialog.h
     src/app/printplandialog.cpp
     src/app/printplandialog.h
+    src/app/printrundialog.cpp
+    src/app/printrundialog.h
     src/app/factorywidgets.h
     src/app/rabnesttheme.cpp
     src/app/rabnesttheme.h
@@ -89,6 +95,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/core/print/exportmarksettings.h
     src/core/print/exportpaginationsettings.cpp
     src/core/print/exportpaginationsettings.h
+    src/core/print/exportpaper.cpp
+    src/core/print/exportpaper.h
     src/core/print/exportprintmodel.cpp
     src/core/print/exportprintmodel.h
     src/core/print/exportsheets.cpp
@@ -96,6 +104,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/core/print/exporttemplate.cpp
     src/core/print/exporttemplate.h
     src/core/print/printmetrics.h
+    src/core/print/printpdf.cpp
+    src/core/print/printpdf.h
     src/core/print/printplan.cpp
     src/core/print/printplan.h
     src/core/print/printrecipe.cpp

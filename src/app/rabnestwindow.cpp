@@ -26,10 +26,13 @@
 
 #include "app/rabnestwindow.h"
 
+#include "app/busydialog.h"
 #include "app/importoverlay.h"
 #include "app/exportimagedialog.h"
+#include "app/exportpdfdialog.h"
 #include "app/outputinfodialog.h"
 #include "app/printplandialog.h"
+#include "app/printrundialog.h"
 #include "app/runsdock.h"
 #include "app/workspacepage.h"
 
@@ -49,12 +52,16 @@
 #include "core/export/planimagewriter.h"
 #include "core/export/plansheet.h"
 #include "core/print/exportcoverpage.h"
+#include "core/print/exportpaper.h"
 #include "core/print/printmetrics.h"
+#include "core/print/printpdf.h"
 #include "core/print/printrecipe.h"
 
 #include <QDockWidget>
 #include <QApplication>
-#include <QProgressDialog>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFutureWatcher>
 #include <QtConcurrent>
 #include <QResizeEvent>
 #include <QTimer>
@@ -66,6 +73,90 @@ auto Title() -> QString
     return QCoreApplication::applicationName().isEmpty()
                ? QStringLiteral("Rabnest")
                : QCoreApplication::applicationName();
+}
+
+/// What a print run covers, in words: its sizes.
+///
+/// **A range when the sizes are a range.** Three sizes or more that stand next to each other in the
+/// drawing's layer list are one stretch of a graded pattern, and naming both ends is what says so —
+/// « Taille 32 to Taille 36 » instead of the three names strung out. It is the LAYER LIST that
+/// decides, never the order she ticked them in: « consecutive » is a fact about the drawing.
+///
+/// **Every name when they are not.** One size kept out and the two ends no longer say what was
+/// printed; the list does, so the list it is. Two sizes are always a list — a range of two names is
+/// a longer way of writing them.
+auto SizesPhrase(const ImportedDocument &document, const QStringList &sizeIds) -> QString
+{
+    const QVector<ImportedLayer> &layers = document.layers();
+
+    QStringList labels;
+    QVector<int> positions;
+    for (int index = 0; index < layers.size(); ++index)
+    {
+        if (sizeIds.contains(layers.at(index).id))
+        {
+            labels.append(layers.at(index).label);
+            positions.append(index);
+        }
+    }
+
+    if (labels.isEmpty())
+    {
+        return {};
+    }
+
+    if (labels.size() >= 3 && positions.size() == labels.size()
+        && positions.last() - positions.first() + 1 == positions.size())
+    {
+        return RabnestWindow::tr("%1 to %2").arg(labels.first(), labels.last());
+    }
+
+    return labels.join(QStringLiteral(", "));
+}
+
+/// Whether the paper the printer ENDED on is one the run can be printed on.
+///
+/// The system panel is free to change the paper after we set it, and a driver may report a standard
+/// paper under an identifier of its own — a custom one. So the answer is read from the size the
+/// printer states, both ways round, with a millimetre of slack for the driver's own rounding: the
+/// question is « does this sheet hold the run », not « what is this paper called ».
+auto PaperHolds(const QPageLayout &layout, const QVector<ExportPaper::Paper> &papers) -> bool
+{
+    const QSizeF size = layout.fullRect(QPageLayout::Millimeter).size();
+    const double width = std::min(size.width(), size.height());
+    const double height = std::max(size.width(), size.height());
+
+    for (const ExportPaper::Paper &paper : papers)
+    {
+        const double paperWidth = std::min(paper.sizeMm.width(), paper.sizeMm.height());
+        const double paperHeight = std::max(paper.sizeMm.width(), paper.sizeMm.height());
+
+        if (std::abs(width - paperWidth) <= 1.0 && std::abs(height - paperHeight) <= 1.0)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// The papers a run can be printed on, as one phrase: « A4 or Letter ».
+auto PaperNames(const QVector<ExportPaper::Paper> &papers) -> QString
+{
+    QStringList names;
+    names.reserve(papers.size());
+    for (const ExportPaper::Paper &paper : papers)
+    {
+        names.append(ExportPaper::Name(paper.id));
+    }
+
+    if (names.size() <= 1)
+    {
+        return names.value(0);
+    }
+
+    const QString last = names.takeLast();
+    return RabnestWindow::tr("%1 or %2").arg(names.join(QStringLiteral(", ")), last);
 }
 }  // namespace
 
@@ -88,6 +179,20 @@ RabnestWindow::RabnestWindow(QWidget *parent)
     connect(m_runs, &RunsDock::DeleteRequested, this, &RabnestWindow::DeleteOutput);
     connect(m_runs, &RunsDock::ExportRequested, this, &RabnestWindow::ExportOutputToImage);
     connect(m_runs, &RunsDock::PrintRequested, this, &RabnestWindow::PrintCutPlan);
+
+    // ⚠️ **A run is edited on the canvas and kept in the dock's row, and those were two copies.**
+    // The canvas drew its own; the row kept the run as it was laid out. A hand moved a piece, the row
+    // never heard of it, and everything that reads the row — the export, the printer, the information
+    // dialogue, and the selection that shows the row again — answered with the positions the nesting
+    // had given, so the gesture was lost and the drawing jumped back. One move, one hand-over: the
+    // row is the run from then on.
+    connect(m_workspace, &WorkspacePage::PrintPlanEdited, this, [this] {
+        const int row = m_runs->CurrentRow();
+        if (row >= 0 && m_printOutputs.contains(row))
+        {
+            m_printOutputs[row].plan = m_workspace->PrintPlanShown();
+        }
+    });
 
     connect(m_runs, &RunsDock::CurrentChanged, this, [this](int index) {
         if (index < 0)
@@ -199,11 +304,11 @@ void RabnestWindow::PrintCutPlan(int index)
     }
 
     // ⚠️ **A print run is not a cutting plan.** Its row exists so the print panel has something to
-    // present, and the plan beside it is a shell: printing it would put an empty sheet on paper.
+    // present, and the plan beside it is a shell: printing it would put an empty sheet on paper. A
+    // run has its own printing, which is its file's drawing and not a plan shrunk onto one sheet.
     if (m_printOutputs.contains(index))
     {
-        QMessageBox::information(this, tr("Print"),
-                                 tr("This output is a print run. This prints a cutting plan."));
+        PrintPrintOutput(index);
         return;
     }
 
@@ -310,6 +415,127 @@ void RabnestWindow::PrintCutPlan(int index)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::PrintPrintOutput(int index)
+{
+    const PrintOutput &output = m_printOutputs.value(index);
+    const CutPlan &row = m_plans.at(index);
+    const PrintPlan &plan = output.plan;
+    if (!plan.ok)
+    {
+        return;
+    }
+
+    // The sheet the run is laid out on: one cell of its tiling, or the bin itself when it is a roll.
+    const QSizeF sheetPx = plan.grid.valid
+                               ? QSizeF(plan.grid.cellWidthPx, plan.grid.cellHeightPx)
+                               : QSizeF(plan.binWidthPx, plan.usedHeightPx);
+    const QSizeF sheetMm(PrintMetrics::PxToMm(sheetPx.width()),
+                         PrintMetrics::PxToMm(sheetPx.height()));
+
+    // **The papers are deduced, not offered.** A format belongs to one pair of papers, and inside
+    // that pair only the ones that hold its sheet whole: an A4 run on A4, a framed run on A4 or on
+    // Letter. When none can carry it, the run is not printed at all — a sheet cut short does not
+    // glue to the one beside it, and nothing on the paper would say so.
+    const ExportPrintModel *model = FindExportPrintModel(plan.modelToken);
+    if (model == nullptr)
+    {
+        return;
+    }
+
+    const QVector<ExportPaper::Paper> papers = ExportPaper::Fitting(model->family, sheetMm);
+    if (papers.isEmpty())
+    {
+        QMessageBox::warning(this, tr("Print"),
+                             tr("This run is %1 × %2 mm per sheet, and no sheet of paper holds it "
+                                "whole. Export it as a PDF and print it from there.")
+                                 .arg(sheetMm.width(), 0, 'f', 1)
+                                 .arg(sheetMm.height(), 0, 'f', 1));
+        return;
+    }
+
+    const int sheets = plan.Pages(!output.coverPaper.isEmpty());
+
+    // **The paper the machine already has, when the run fits it.** A framed run fits two papers and
+    // only one of them is probably loaded; proposing the other would print on a sheet of the wrong
+    // size for anyone who presses Print without reading.
+    QPageSize::PageSizeId preferred = papers.first().id;
+    const QPageSize loaded = QPrinter(QPrinter::HighResolution).pageLayout().pageSize();
+    for (const ExportPaper::Paper &paper : papers)
+    {
+        if (paper.id == loaded.id())
+        {
+            preferred = paper.id;
+        }
+    }
+
+    PrintRunDialog choice(row.sizeLabel, sheetMm, sheets, papers, preferred, this);
+    if (choice.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setPageSize(QPageSize(choice.paper()));
+    printer.setPageOrientation(QPageLayout::Portrait);
+
+    // ⚠️ **`fullPage` false**, as for a cutting plan: the page the painter is given is the paper the
+    // machine can actually ink, and not the whole sheet it was told about.
+    printer.setFullPage(false);
+
+    QPrintDialog panel(&printer, this);
+    panel.setWindowTitle(tr("Print the print run"));
+    if (panel.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    printer.setFullPage(false);
+
+    // ⚠️ **The system panel may have changed the paper, and that is the mistake this exists to
+    // stop.** An A4 run printed on Letter still looks like a plan, and is a plan whose sheets are
+    // two millimetres short. What the printer actually received is what is checked.
+    if (!PaperHolds(printer.pageLayout(), papers))
+    {
+        QMessageBox::warning(
+            this, tr("Print"),
+            tr("These sheets are %1 × %2 mm, and this run prints on %3 only. Nothing was printed.")
+                .arg(sheetMm.width(), 0, 'f', 1)
+                .arg(sheetMm.height(), 0, 'f', 1)
+                .arg(PaperNames(papers)));
+        return;
+    }
+
+    // The run is drawn from the PDF it was read from, exactly as its export is: the paper is the
+    // file's drawing, never a second drawing made for the printer.
+    const ImportedDocument document = ImportedDocument::Read(output.sourcePath);
+    if (!document.isValid() || document.kind() != ImportedDocument::Kind::Ostara)
+    {
+        QMessageBox::warning(
+            this, tr("Print"),
+            tr("The PDF this print was laid from can no longer be read:\n%1\n\n%2")
+                .arg(output.sourcePath, document.error()));
+        return;
+    }
+
+    PrintPdf::Job job;
+    job.payload = document.payload();
+    job.plan = output.plan;
+    job.decor = output.decor;
+    job.framed = output.framed;
+    job.coverSvg = output.coverSvg;
+    job.coverPaper = output.coverPaper;
+    job.coverPage = output.coverPage;
+    job.sourcePath = output.sourcePath;
+    job.title = row.sizeLabel;
+
+    QString error;
+    if (!PrintPdf::Paint(printer, job, &error))
+    {
+        QMessageBox::warning(this, tr("Print"), error);
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void RabnestWindow::ExportOutputToImage(int index)
 {
     if (index < 0 || index >= m_plans.size())
@@ -319,12 +545,10 @@ void RabnestWindow::ExportOutputToImage(int index)
 
     // ⚠️ **A print run is not a cutting plan.** Its row exists so the print panel has something to
     // present; the plan beside it is a shell, and rendering it would write an empty sheet under the
-    // name of a real output.
+    // name of a real output. A print is delivered as a PDF, which is the only file a print can be.
     if (m_printOutputs.contains(index))
     {
-        QMessageBox::information(this, tr("Export"),
-                                 tr("This output is a print run. Print it, or make a cutting plan to "
-                                    "export an image of."));
+        ExportPrintOutput(index);
         return;
     }
 
@@ -372,10 +596,107 @@ void RabnestWindow::ExportOutputToImage(int index)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ExportPrintOutput(int index)
+{
+    const PrintOutput &output = m_printOutputs.value(index);
+    const CutPlan &row = m_plans.at(index);
+
+    // **The folder proposed is the one the run came from.** The PDF this print was read from has a
+    // folder, and that is where its print belongs; a delivery that started in the Documents folder
+    // would be a delivery she has to hunt for. The name proposed is the row's own, so the file she
+    // is about to write is the one she pressed.
+    ExportPdfDialog dialog(RunsDock::Name(row, /*isPrint=*/true),
+                           QFileInfo(output.sourcePath).absolutePath(), this);
+    if (dialog.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    const QString path = QDir(dialog.directory()).filePath(dialog.fileName());
+
+    // The plan is drawn from the payload, and the payload is in the PDF it was read from. Read again
+    // rather than kept: a print run outlives the import it came from, and the file is the only thing
+    // that still knows what the run was drawn from.
+    const ImportedDocument document = ImportedDocument::Read(output.sourcePath);
+    if (!document.isValid() || document.kind() != ImportedDocument::Kind::Ostara)
+    {
+        QMessageBox::warning(
+            this, tr("Export"),
+            tr("The PDF this print was laid from can no longer be read:\n%1\n\n%2")
+                .arg(output.sourcePath, document.error()));
+        return;
+    }
+
+    PrintPdf::Job job;
+    job.payload = document.payload();
+    job.plan = output.plan;
+    job.decor = output.decor;
+    job.framed = output.framed;
+    job.coverSvg = output.coverSvg;
+    job.coverPaper = output.coverPaper;
+    job.coverPage = output.coverPage;
+    job.sourcePath = output.sourcePath;
+    job.title = QFileInfo(path).fileName();
+
+    QString error;
+    if (!PrintPdf::Write(job, path, &error))
+    {
+        QMessageBox::warning(this, tr("Export"), error);
+        return;
+    }
+
+    QMessageBox::information(this, tr("Export"), tr("File written:\n%1").arg(path));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void RabnestWindow::ShowOutputInfo(int index)
 {
     if (index < 0 || index >= m_plans.size())
     {
+        return;
+    }
+
+    // ⚠️ **A print run is answered with the PAPER's facts, not the cloth's.** Its row in the dock is
+    // a shell — the plan that presents it carries no poses and no fabric — so the cutting plan's
+    // dialogue answered every question with a zero: no page count, a fabric length the run never
+    // had, and « Pieces 0 » for a run that lays nine of them.
+    if (m_printOutputs.contains(index))
+    {
+        const PrintOutput &output = m_printOutputs.value(index);
+        const PrintPlan &plan = output.plan;
+
+        PrintInfo info;
+        info.title = m_plans.at(index).sizeLabel;
+
+        const ExportPrintModel *model = FindExportPrintModel(plan.modelToken);
+        info.format = model != nullptr
+                          ? QCoreApplication::translate("OExportPrintModel", model->label)
+                          : tr("Unknown format");
+        info.columns = plan.columns;
+        info.hasColumns = model != nullptr && model->hasColumns;
+        info.marginCm = plan.marginCm;
+        info.gapCm = plan.gapCm;
+
+        // The cover page is on a sheet of its own exactly when the run carries one — the rectangle
+        // the canvas draws it in.
+        info.coverPage = !output.coverPaper.isEmpty();
+        info.pages = plan.Pages(info.coverPage);
+        info.seconds = plan.seconds;
+        info.sizes = plan.layers.size();
+
+        for (const PrintLayer &layer : plan.layers)
+        {
+            for (const PrintPiece &piece : layer.pieces)
+            {
+                if (!info.pieces.contains(piece.name))
+                {
+                    info.pieces.append(piece.name);
+                }
+            }
+        }
+
+        OutputInfoDialog dialog(info, this);
+        dialog.exec();
         return;
     }
 
@@ -472,7 +793,7 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
 
 //---------------------------------------------------------------------------------------------------------------------
 void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &modelToken,
-                                  int columns, double marginMm, double gapMm)
+                                  int columns, double marginMm, double gapMm, bool plainOutline)
 {
     const ImportedDocument document = m_overlay != nullptr ? m_overlay->document() : m_document;
     if (!document.isValid())
@@ -503,77 +824,102 @@ void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &mod
     const QRectF coverBlock =
         hasCover && seat == CoverSeat::InSheet ? ExportCoverPage::BlockPx(seat, marginPx) : QRectF();
 
-    // The same moment of waiting the cutting plan shows: a print run takes seconds to minutes, and
-    // a spinning cursor says neither what is happening nor that anything is.
-    QProgressDialog waiting(tr("Laying the print out…"), QString(), 0, 0, this);
-    waiting.setWindowTitle(tr("Print"));
-    waiting.setWindowModality(Qt::WindowModal);
-    waiting.setCancelButton(nullptr);
-    waiting.setMinimumDuration(0);
-    waiting.show();
-    QApplication::processEvents();
+    // The same moment of waiting the cutting plan shows, and the same second count: a print run
+    // takes seconds to minutes, and a window that says nothing for that long is a window somebody
+    // clicks on twice.
+    auto *busy = new BusyDialog(this, tr("Print"), tr("Laying the print out…"));
+    busy->show();
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
-    const PrintPlan plan = PrintPlan::Generate(document, sizeIds, m_pieceIds, marginMm / 10.0,
-                                               gapMm / 10.0, binWidthPx, std::max(columns, 1),
-                                               model->heightMm, coverBlock);
+    auto *clock = new QElapsedTimer();
+    clock->start();
 
-    waiting.close();
+    // ⚠️ **On a worker thread, and not on the one that paints.** The print nesting is the same
+    // engine as the cutting plan's — seconds of work, and anything that blocks the event loop for
+    // that long paints NOTHING: not the dialogue that says it is working, not the seconds that
+    // count it. `ImportOverlay::Generate` does the same for the other nesting, for the same reason.
+    const QStringList pieces = m_pieceIds;
 
-    m_overlay->deleteLater();
-    m_overlay = nullptr;
+    auto *watcher = new QFutureWatcher<PrintPlan>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, clock, busy, decor, recipe, model, seat, hasCover, marginPx, coverBlock,
+             document, sizeIds, documentWidthMm] {
+                PrintPlan plan = watcher->future().result();
 
-    if (!plan.ok)
-    {
-        QMessageBox::warning(this, tr("Print"), plan.error);
-        return;
-    }
+                // The figure the user reads is the time HER plan cost: measured around the engine,
+                // and it travels inside the plan so that the canvas can write it.
+                plan.seconds = clock->elapsed() / 1000.0;
 
-    PrintOutput output;
-    output.plan = plan;
-    output.decor = decor;
-    output.coverSvg = recipe.coverSvg;
-    output.framed = model->hasFrame;
+                delete clock;
+                watcher->deleteLater();
+                busy->deleteLater();
 
-    if (hasCover)
-    {
-        if (plan.grid.valid)
-        {
-            output.coverPaper = ExportCoverPage::PaperPx(seat, marginPx, plan.grid.planRect,
-                                                         plan.grid.cellWidthPx, plan.grid.cellHeightPx);
-            output.coverPage = ExportCoverPage::PagePx(seat, marginPx, plan.grid.planRect,
-                                                       plan.grid.cellWidthPx, plan.grid.cellHeightPx);
-        }
-        else if (seat == CoverSeat::InSheet)
-        {
-            output.coverPage = coverBlock;
-        }
-    }
+                m_overlay->deleteLater();
+                m_overlay = nullptr;
 
-    // The row that presents it: a print run is named by the sizes it covers, as Ostara's own
-    // dialog names the generation it makes.
-    QStringList labels;
-    for (const ImportedLayer &layer : document.layers())
-    {
-        if (sizeIds.contains(layer.id))
-        {
-            labels.append(layer.label);
-        }
-    }
+                if (!plan.ok)
+                {
+                    QMessageBox::warning(this, tr("Print"), plan.error);
+                    return;
+                }
 
-    const QString name = labels.size() > 1
-                             ? tr("Sizes %1 - Print").arg(labels.join(QStringLiteral("–")))
-                             : tr("%1 - Print").arg(labels.value(0));
+                PrintOutput output;
+                output.plan = plan;
+                output.decor = decor;
+                output.coverSvg = recipe.coverSvg;
+                output.framed = model->hasFrame;
+                output.sourcePath = document.path();
 
-    CutPlan row;
-    row.sizeLabel = name;
-    row.fabricWidthCm = documentWidthMm / 10.0;
-    row.binWidthPx = plan.binWidthPx;
-    row.usedHeightPx = plan.usedHeightPx;
-    row.ok = true;
+                if (hasCover)
+                {
+                    if (plan.grid.valid)
+                    {
+                        output.coverPaper =
+                            ExportCoverPage::PaperPx(seat, marginPx, plan.grid.planRect,
+                                                     plan.grid.cellWidthPx, plan.grid.cellHeightPx);
+                        output.coverPage =
+                            ExportCoverPage::PagePx(seat, marginPx, plan.grid.planRect,
+                                                    plan.grid.cellWidthPx, plan.grid.cellHeightPx);
+                    }
+                    else if (seat == CoverSeat::InSheet)
+                    {
+                        output.coverPage = coverBlock;
+                    }
+                }
 
-    const int index = m_plans.size();
-    m_plans.append(row);
-    m_printOutputs.insert(index, output);
-    m_runs->SetCanGenerate(true);
-    m_runs->AddRun(row);
+                // The row that presents it: the sizes it covers, then the paper it is printed on.
+                //
+                // **A range when the sizes are a range, every name when they are not.** Three sizes
+                // or more that stand next to each other in the drawing's own layer list read better
+                // as « Taille 32 to Taille 36 » than as the three of them strung out; as soon as one
+                // is missing — a size kept out, a size the range does not have — the list is what
+                // says the truth, and a range would show two boundaries that mean something else.
+                const QString format = QCoreApplication::translate("OExportPrintModel", model->label);
+                const QString sizes = SizesPhrase(document, sizeIds);
+
+                const QString name =
+                    sizes.isEmpty() ? format : tr("%1 - %2").arg(sizes, format);
+
+                CutPlan row;
+                row.sizeLabel = name;
+                row.fabricWidthCm = documentWidthMm / 10.0;
+                row.binWidthPx = plan.binWidthPx;
+                row.usedHeightPx = plan.usedHeightPx;
+                row.ok = true;
+
+                const int index = m_plans.size();
+                m_plans.append(row);
+                m_printOutputs.insert(index, output);
+                m_runs->SetCanGenerate(true);
+                m_runs->AddRun(row, /*isPrint=*/true);
+            });
+
+    watcher->setFuture(QtConcurrent::run([document, sizeIds, pieces, marginCm = marginMm / 10.0,
+                                          gapCm = gapMm / 10.0, binWidthPx,
+                                          columns = std::max(columns, 1),
+                                          sheetHeightMm = model->heightMm, coverBlock,
+                                          token = QString::fromLatin1(model->token), plainOutline] {
+        return PrintPlan::Generate(document, sizeIds, pieces, marginCm, gapCm, binWidthPx, columns,
+                                   sheetHeightMm, coverBlock, token, plainOutline);
+    }));
 }

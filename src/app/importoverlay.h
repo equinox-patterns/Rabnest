@@ -35,6 +35,7 @@
 #include <QVector>
 #include <QWidget>
 
+class BusyDialog;
 class ChecklistPage;
 class CutPlanPage;
 class ImportPage;
@@ -83,7 +84,7 @@ signals:
     /// lays the run out, because the print needs the document and the settings of the panel it
     /// keeps — not the ones this page would have to rebuild.
     void PrintRequested(const QStringList &sizeIds, const QString &modelToken, int columns,
-                        double marginMm, double gapMm);
+                        double marginMm, double gapMm, bool plainOutline);
 
 
 protected:
@@ -101,7 +102,7 @@ private:
     void ShowPage(QWidget *page);
     void Finish(const QVector<CutPlan> &plans);
 
-    class BusyDialog *m_busy = nullptr;
+    BusyDialog *m_busy = nullptr;
 
     ImportedDocument m_document;
     QStringList m_sizeIds;

@@ -35,7 +35,6 @@
 
 #include <QDomDocument>
 #include <QDomElement>
-#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 
@@ -90,7 +89,7 @@ auto MinCorner(const Clipper2Lib::Path64 &path) -> QPointF
 /// it: `<g id="Taille_46">` holds the size's paths, and each carries `stroke` and, when the size
 /// has one, `stroke-dasharray`. Nothing is derived — a second palette would be a second plan.
 auto LayerStyle(const QDomDocument &payload, const QString &sizeId, QColor &colour,
-                QVector<qreal> &dashes) -> bool
+                QVector<qreal> &dashes, qreal &width) -> bool
 {
     if (sizeId.isEmpty())
     {
@@ -137,6 +136,14 @@ auto LayerStyle(const QDomDocument &payload, const QString &sizeId, QColor &colo
                         dashes.append(value);
                     }
                 }
+
+                // The weight travels with the colour and the dashes, and for the same reason: it is
+                // what the creator drew with. The canvas has a floor of its own and ignores it; a
+                // file draws at the size the paper will be.
+                bool widthOk = false;
+                const qreal stated = path.attribute(QStringLiteral("stroke-width")).toDouble(&widthOk);
+                width = widthOk && stated > 0.0 ? stated : 0.0;
+
                 return true;
             }
         }
@@ -196,12 +203,12 @@ auto PrintedSheets(const std::vector<Placement> &placements,
 auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &sizeIds,
                          const QStringList &pieceNames, double marginCm, double gapCm,
                          double binWidthPx, int columns, double sheetHeightMm,
-                         const QRectF &coverBlockPx) -> PrintPlan
+                         const QRectF &coverBlockPx, const QString &modelToken,
+                         bool plainOutline) -> PrintPlan
 {
-    QElapsedTimer timer;
-    timer.start();
-
     PrintPlan plan;
+    plan.modelToken = modelToken;
+    plan.plainOutline = plainOutline;
     plan.marginCm = marginCm;
     plan.gapCm = gapCm;
     plan.binWidthPx = binWidthPx;
@@ -246,7 +253,13 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
         PrintLayer layer;
         layer.label = size.label;
         layer.sizeId = index < sizeIds.size() ? sizeIds.at(index) : QString();
-        layer.reference = size.reference;
+        // **The children belong to the RUN's first size, which is its smallest.** Ostara draws them
+        // on the first layer of the range, and only there — `const bool isReference = (l == 0);`
+        // (`oexportcanvas.cpp:1812-1814`), grain line included (`:1852-1857`). Naming the payload's
+        // own reference instead meant a run that does not tick the smallest size of the PATTERN
+        // carried no cartouche, no annotation, no miniature and no grain line at all, while Ostara
+        // drew them on the smallest size of the run.
+        layer.reference = (index == 0);
 
         SizeLayer engineLayer;
         engineLayer.label = size.label;
@@ -309,7 +322,7 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
     {
         for (PrintLayer &layer : layers)
         {
-            LayerStyle(drawing, layer.sizeId, layer.colour, layer.dashes);
+            LayerStyle(drawing, layer.sizeId, layer.colour, layer.dashes, layer.width);
         }
     }
 
@@ -485,6 +498,13 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
 
     plan.ok = true;
     return plan;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto PrintPlan::Pages(bool coverHasItsOwnSheet) const -> int
+{
+    const int printed = grid.valid ? sheets.count : 1;
+    return printed + (coverHasItsOwnSheet ? 1 : 0);
 }
 
 //---------------------------------------------------------------------------------------------------------------------

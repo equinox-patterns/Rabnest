@@ -32,10 +32,13 @@
 #include "core/print/printplan.h"
 
 #include <QByteArray>
+#include <QHash>
+#include <QPointF>
 #include <QVector>
 #include <QWidget>
 
 class QGraphicsScene;
+class QGraphicsItem;
 class QGraphicsView;
 class QPainter;
 class QLabel;
@@ -76,12 +79,24 @@ public:
     /// Redraws the print run as it now stands — called after a hand moved a piece, because the
     /// paper follows the ink: a sheet a hand has emptied is dropped, and one it put a piece back on
     /// is printed again.
-    void RedrawPrint();
+    ///
+    /// @param refit true puts the run on screen fitted to the canvas — what a NEW run gets. False
+    ///        keeps the view exactly where the hand left it, which is what a move needs: re-fitting
+    ///        after a gesture would throw away the zoom taken before it.
+    void RedrawPrint(bool refit = true);
 
     /// A piece of the print run was moved, by @p delta in the scene's own coordinates. The
     /// placement it is drawn at takes the move — every size of that piece follows, since they share
     /// one footprint — and the sheets are read again.
     void MovePrintPiece(int placementIndex, const QPointF &delta);
+
+    /// The print run exactly as it is drawn, hand moves included.
+    ///
+    /// **The canvas is where a run is edited, and the caller is where it is kept.** A move changes
+    /// this page's own copy; the row in the dock holds the one everything else reads — the file, the
+    /// printer, the information dialogue — so the two have to be one value from time to time, and
+    /// this is the read that does it.
+    auto PrintPlanShown() const -> const PrintPlan & { return m_printPlan; }
 
     /// A blank canvas — « back to home » leaves nothing of the PDF on screen.
     void Clear();
@@ -108,9 +123,34 @@ public:
     void ZoomIn();
     void ZoomOut();
 
+signals:
+    /// A hand moved a piece of the run shown. **The run is now this page's, and not the row's**: it
+    /// is emitted so that whoever keeps the row can take the edited run back before anything reads
+    /// it, and so that selecting the row again cannot put the old positions back on screen.
+    void PrintPlanEdited();
+
+protected:
+    /// **A canvas that was resized is a canvas that no longer fits.** `fitInView` is applied once,
+    /// when a plan is put on screen, and the widget around it moves afterwards — a tab shown, a
+    /// window resized, the line under the plan growing or shrinking to its text — so the drawing
+    /// kept the previous scale and the bottom of it fell outside the viewport: a plan whose last
+    /// row is cut. The view's own viewport is watched, and the fit is taken again every time it
+    /// changes size, unless a hand has zoomed — a zoom is not undone by a resize.
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void Draw(const CutPlan &plan);
     void ZoomBy(double factor);
+
+    /// Fits the whole scene in the viewport, and re-lays the strokes for that scale.
+    void FitToScene();
+
+    /// The gesture that moves a piece of a print run: a press on a footprint, its steps, and the
+    /// placement it lands on. Read on the viewport, before a view in `ScrollHandDrag` can pan with
+    /// it — the item is moved by the page, never by itself.
+    ///
+    /// @return true when the event was the gesture's and must not go further.
+    bool HandlePrintDrag(QEvent *event);
 
     /// Re-lays every piece's stroke for the zoom the view is at — see @ref PatternPen. Called after
     /// anything that moves the view's transform, and never on a timer: a stroke one frame behind the
@@ -133,6 +173,28 @@ private:
     QRectF m_coverPage;
     bool m_printFramed = false;
     bool m_printMode = false;
+
+    /// What is laid WITH a footprint — the cartouche, the annotations, the miniature, the grain
+    /// line of its reference size — so that a gesture moves the drawing and not only the outline.
+    QHash<int, QVector<QGraphicsItem *>> m_printFollowers;
+
+    /// The footprints on screen, and the gesture in progress: what was taken, where the hand was,
+    /// and how far it has gone.
+    QVector<QGraphicsItem *> m_printItems;
+    QGraphicsItem *m_dragItem = nullptr;
+    QPointF m_dragLast;
+    QPointF m_dragTotal;
+
+    /// True while the SPACE key is held: the canvas is being panned, and a click is a pan and not a
+    /// grip — a hand that holds space to move around must not drag a piece out of the plan on the
+    /// way.
+    bool m_spaceHeld = false;
+
+    /// True once a hand has zoomed: a resize must then leave the scale alone.
+    bool m_zoomed = false;
+
+    /// Guards the re-fit against the resize its own scrollbars cause.
+    bool m_fitting = false;
 };
 
 #endif  // WORKSPACEPAGE_H

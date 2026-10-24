@@ -126,9 +126,9 @@ auto MakeIconButton(const QString &baseName, const QString &text, QWidget *paren
 /// answers, and both are called « Taille 46 - Cut » — that is deliberate: the dock is a list of
 /// what she ASKED FOR, and what differs between them is a setting, which is exactly what the
 /// information dialogue exists to show.
-auto RunsDock::Name(const CutPlan &plan) -> QString
+auto RunsDock::Name(const CutPlan &plan, bool isPrint) -> QString
 {
-    return QObject::tr("%1 - Cut").arg(plan.sizeLabel);
+    return isPrint ? plan.sizeLabel : QObject::tr("%1 - Cut").arg(plan.sizeLabel);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -233,8 +233,20 @@ void RunsDock::BuildUi()
     connect(m_exportSeveral, &QPushButton::clicked, this, &RunsDock::ExportSeveralRequested);
     connect(m_home, &QPushButton::clicked, this, &RunsDock::HomeRequested);
 
-    connect(m_table, &QTableWidget::currentCellChanged, this,
-            [this](int row, int, int, int) { emit CurrentChanged(row); });
+    // **The ROW decides, and not the cell.** Every row carries four icons, and clicking one of them
+    // moves the table's current cell within a row that is already the current one. Announcing that as
+    // a change re-shows the run from the dock's own copy — with the zoom thrown away and, before the
+    // dock learned to take hand moves back, with every piece back where the nesting had put it: the
+    // gesture looked undone by the very click that was meant to export it.
+    connect(m_table, &QTableWidget::currentCellChanged, this, [this](int row, int, int, int) {
+        if (row == m_currentRow)
+        {
+            return;
+        }
+
+        m_currentRow = row;
+        emit CurrentChanged(row);
+    });
 
     // One routing point: the column the click landed in decides the gesture, and the row decides
     // whose. A cell with no icon — the name — only selects, which is already handled above.
@@ -261,15 +273,15 @@ void RunsDock::BuildUi()
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void RunsDock::AddRun(const CutPlan &plan)
+void RunsDock::AddRun(const CutPlan &plan, bool isPrint)
 {
     const int row = m_table->rowCount();
     m_table->insertRow(row);
     m_table->setRowHeight(row, kRowHeight);
 
-    auto *name = new QTableWidgetItem(RunsDock::Name(plan));
+    auto *name = new QTableWidgetItem(RunsDock::Name(plan, isPrint));
     name->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-    name->setToolTip(plan.ok ? RunsDock::Name(plan) : plan.error);
+    name->setToolTip(plan.ok ? RunsDock::Name(plan, isPrint) : plan.error);
     m_table->setItem(row, kName, name);
 
     struct Action
@@ -283,8 +295,14 @@ void RunsDock::AddRun(const CutPlan &plan)
         {kInfo, QStringLiteral("info"), tr("What this output was asked for")},
         // The two that are not wired yet say so, in the tooltip, rather than doing nothing in
         // silence when pressed.
-        {kExport, QStringLiteral("download"), tr("Export this plan as an image")},
-        {kPrint, QStringLiteral("printer"), tr("Print (not available yet)")},
+        // A print run is not an image: it leaves as a PDF with one layer per size and one page per
+        // sheet, and the tooltip is where that is said before anything is pressed.
+        {kExport, QStringLiteral("download"),
+         isPrint ? tr("Export this print as PDF") : tr("Export this plan as an image")},
+        // A cutting plan prints as one sheet the plan is shrunk onto; a print run prints as its own
+        // sheets, at their size. Two gestures, two sentences.
+        {kPrint, QStringLiteral("printer"),
+         isPrint ? tr("Print these sheets") : tr("Print this plan")},
         {kDelete, QStringLiteral("trash"), tr("Delete")}};
 
     for (const Action &action : actions)
@@ -301,12 +319,22 @@ void RunsDock::AddRun(const CutPlan &plan)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+auto RunsDock::CurrentRow() const -> int
+{
+    return m_table->currentRow();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void RunsDock::RemoveRun(int index)
 {
     if (index < 0 || index >= m_table->rowCount())
     {
         return;
     }
+
+    // The row is going, so whatever the table announces next is a change, even if it keeps the same
+    // number: forgetting the announced row here is what lets that announcement through.
+    m_currentRow = -1;
 
     m_table->removeRow(index);
 
@@ -325,6 +353,7 @@ void RunsDock::RemoveRun(int index)
 void RunsDock::Clear()
 {
     m_table->setRowCount(0);
+    m_currentRow = -1;
     emit CurrentChanged(-1);
     RefreshEnabledState();
 }

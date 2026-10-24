@@ -56,10 +56,21 @@ public:
 
     /// What an output is called: its size, and the kind of plan it is. Named once for the whole
     /// application — the dock shows it, and an exported file carries it.
-    static auto Name(const CutPlan &plan) -> QString;
+    ///
+    /// @param isPrint  true for a print run. A print is not « cut » and does not say so: its name
+    ///                 already states what it covers — its sizes and its paper — and a kind tagged
+    ///                 onto that is a word nobody needs. A cutting plan keeps the tag, because two
+    ///                 plans of one size are two answers and only the kind tells them apart.
+    static auto Name(const CutPlan &plan, bool isPrint = false) -> QString;
 
     /// Adds a plan and selects it — the selection is what puts it on the canvas.
-    void AddRun(const CutPlan &plan);
+    ///
+    /// @param isPrint  true for a print run. The row looks the same, but what its icons DO is not:
+    ///                 a plan is delivered as an image of the drawing, a print as a layered PDF.
+    void AddRun(const CutPlan &plan, bool isPrint = false);
+
+    /// The row the user is on, or -1 when none is — what the canvas is showing.
+    auto CurrentRow() const -> int;
 
     /// Removes one row. The plans themselves are the window's; it removes its own copy first, so
     /// that the selection change this raises already names a valid row.
@@ -95,6 +106,11 @@ private:
     void RefreshEnabledState();
 
     QTableWidget *m_table = nullptr;
+
+
+    /// The row announced last: a cell change inside it is not a change of output.
+
+    int m_currentRow = -1;
     QPushButton *m_generate = nullptr;
     QPushButton *m_exportSeveral = nullptr;
     QPushButton *m_home = nullptr;
