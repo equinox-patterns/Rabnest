@@ -169,6 +169,26 @@ enum class Cloth
 };
 
 /**
+ * @brief Which CLOTH a plan is cut from — the one thing that tells the two plans of a pair apart.
+ *
+ * A piece carries a cut quantity per cloth: the Cut section of its cartouche holds one figure per
+ * material, and **0 means « not cut in that one at all »**, not « cut once ». A plan is laid for ONE
+ * of them, and a run may ask for two — the fabric and the lining — which are then two plans over two
+ * different piece sets, each cut as many times as its own quantity says.
+ *
+ * **Nothing else separates them.** The fold, the direction, the margin and the gap are the run's and
+ * belong to both: only the width is its own, because a lining is bought on its own bolt.
+ *
+ * Interfacing is deliberately absent: it has no cutting plan (decided) — an interfacing is cut from
+ * the leftovers, it is not bought by the width. The day it asks for one, it is one value more here.
+ */
+enum class Material
+{
+    Fabric,
+    Lining
+};
+
+/**
  * @brief Reads the pieces of an Ostara PDF, as a plan needs them.
  *
  * **The payload is the only source, and it says everything.** Ostara writes, per piece, its outline
@@ -194,9 +214,13 @@ public:
      */
     /// @param decor  what each piece is DRAWN with, by piece name — filled from the decor layer, and
     ///               left empty when the file carries none
+    /// @param material which cloth the plan is cut from — @see Material. It decides WHICH pieces are
+    ///               in the plan (those carrying a cut in that cloth) and HOW MANY poses each one
+    ///               takes. A print passes nothing: `Cloth::AsDrawn` lays every piece once and the
+    ///               material never comes into it.
     static bool Load(const ImportedDocument &document, const QStringList &sizeIds,
                      const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
-                     QString *error);
+                     QString *error, Material material = Material::Fabric);
 };
 
 #endif  // PATTERN_H

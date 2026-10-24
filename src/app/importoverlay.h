@@ -77,8 +77,13 @@ public:
     void StartAtSizes(const ImportedDocument &document);
 
 signals:
-    /// Empty when the journey was given up — closing the panel, or Escape.
-    void Finished(const QVector<CutPlan> &plans);
+    /// The plans, in the order the sizes were asked for, and the LINING plans that go with them —
+    /// one per size, in the same order, when the run asked for a pair. Both empty when the journey
+    /// was given up — closing the panel, or Escape.
+    ///
+    /// The two lists are APART and not interleaved: a cutting plan is a cloth, and the row of the
+    /// dock is the size. The window keeps the second beside the first, under the same row.
+    void Finished(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining);
 
     /// The Print tab asked to generate: the sizes it ticked, and the paper it chose. The window
     /// lays the run out, because the print needs the document and the settings of the panel it
@@ -100,7 +105,7 @@ private:
     void Generate();
     void ReduceLayers(const QString &target);
     void ShowPage(QWidget *page);
-    void Finish(const QVector<CutPlan> &plans);
+    void Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining);
 
     BusyDialog *m_busy = nullptr;
 

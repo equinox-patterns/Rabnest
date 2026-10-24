@@ -33,10 +33,13 @@
 #include "core/print/printplan.h"
 
 #include <QCoreApplication>
+#include <QGraphicsItemGroup>
 #include <QGraphicsPathItem>
+#include <QGraphicsRectItem>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QScrollBar>
+#include <QSizeF>
 #include <QTimer>
 #include <QGraphicsPolygonItem>
 #include <QPainterPath>
@@ -59,6 +62,13 @@
 
 namespace
 {
+/// The band between the two cloths of a pair, in scene pixels — **one inch, and a FIXED one**
+/// (`oexportoutputs.cpp:103`, `kLiningGapPx`). Fixed and not proportional: a gap that grew with the
+/// plan would give two runs of the same width two different spacings, and two drawings that no
+/// longer compare. An inch is enough to see at a glance that there are two plans, and not enough to
+/// read anything between them.
+constexpr double kLiningGapPx = 96.0;
+
 constexpr double kCmPerPx = 2.54 / 96.0;
 constexpr double kScale = 1000000.0;
 constexpr double kMmPerPx = 25.4 / 96.0;
@@ -354,9 +364,9 @@ WorkspacePage::WorkspacePage(QWidget *parent)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void WorkspacePage::Show(const CutPlan &plan)
+void WorkspacePage::Show(const CutPlan &plan, const CutPlan *lining)
 {
-    Draw(plan);
+    Draw(plan, lining);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -502,7 +512,7 @@ void WorkspacePage::RefreshLineWidth()
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void WorkspacePage::Draw(const CutPlan &plan)
+void WorkspacePage::Draw(const CutPlan &plan, const CutPlan *lining)
 {
     m_printMode = false;
     m_printItems.clear(); // the items of a print run are gone with its scene
@@ -515,6 +525,40 @@ void WorkspacePage::Draw(const CutPlan &plan)
         return;
     }
 
+    QRectF bounds = DrawCloth(plan, QPointF(0.0, 0.0));
+
+    // ── La doublure, à droite du tissu, dans la MÊME scène ──────────────────────────────────────
+    //
+    // La scène ne se vide qu'une fois, et la seconde nappe s'ajoute à la première à la place qui lui
+    // est réservée. Une seule scène pour les deux : c'est ce qui fait qu'on les lit ensemble, qu'un
+    // seul zoom les cadre toutes les deux, et que la ligne de chiffres parle d'un run et non de deux
+    // (oexportoutputs.cpp:1937-1950).
+    if (lining != nullptr && lining->ok)
+    {
+        const QPointF seat(bounds.right() + kLiningGapPx, bounds.top());
+        bounds = bounds.united(DrawCloth(*lining, seat));
+    }
+
+    m_scene->setSceneRect(bounds.adjusted(-20.0, -20.0, 20.0, 20.0));
+    m_zoomed = false; // a plan put on screen is looked at WHOLE
+    FitToScene();
+
+    m_detail->setText(FiguresText(plan, lining));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRectF
+{
+    // **Une nappe, et son siège.** Les deux étoffes sont dessinées par CETTE fonction : une pièce,
+    // son encre, son décor et ses enfants ne peuvent donc pas exister d'un côté et manquer de
+    // l'autre. Le siège est la seule chose qui les distingue.
+    auto *group = new QGraphicsItemGroup();
+    // ⚠️ **Le siège se pose APRÈS les items, jamais avant.** `addToGroup` remappe chaque item pour
+    // que sa position à l'écran ne change pas : un groupe déjà déplacé est donc compensé item par
+    // item, et la doublure se dessine à l'origine du tissu — deux nappes l'une sur l'autre, la
+    // seconde recouvrant le haut de la première. Posé à la fin, le siège TRANSLATE le groupe et
+    // tout ce qu'il porte, ce qui est exactement le décalage voulu.
+
     // The cloth: what the pieces were laid into, at the width she paid for and the length the plan
     // actually needs.
     QPen border(QColor(0xD6, 0xD6, 0xD6));
@@ -524,7 +568,10 @@ void WorkspacePage::Draw(const CutPlan &plan)
     // découpent en clair sur du clair. Le tissu prend donc la couleur, et les pièces ne sont plus
     // remplies du tout : ce qu'on voit d'une pièce, c'est son trait.
     const QBrush clothBrush(QColor(0xF7, 0xF5, 0xF2));
-    m_scene->addRect(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx), border, clothBrush);
+    auto *cloth = new QGraphicsRectItem(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx));
+    cloth->setPen(border);
+    cloth->setBrush(clothBrush);
+    group->addToGroup(cloth);
 
     // ── Le pli ──────────────────────────────────────────────────────────────────────────────────
     //
@@ -540,13 +587,13 @@ void WorkspacePage::Draw(const CutPlan &plan)
     {
         QPainterPath outline;
         outline.addRect(zone.rect);
-        m_scene->addItem(new FoldGuideItem(outline, foldZonePen, {56.0, 32.0}));
+        group->addToGroup(new FoldGuideItem(outline, foldZonePen, {56.0, 32.0}));
 
         const double x = zone.foldOnTheLeft ? zone.rect.left() : zone.rect.right();
         QPainterPath axis;
         axis.moveTo(x, zone.rect.top());
         axis.lineTo(x, zone.rect.bottom());
-        m_scene->addItem(new FoldGuideItem(axis, foldZonePen, {32.0, 16.0, 2.0, 16.0}));
+        group->addToGroup(new FoldGuideItem(axis, foldZonePen, {32.0, 16.0, 2.0, 16.0}));
     }
 
     // Its WIDTH is not set here: the zoom decides it, and `RefreshLineWidth` writes it after the
@@ -586,7 +633,7 @@ void WorkspacePage::Draw(const CutPlan &plan)
                 plan.footprint.polygons.at(static_cast<size_t>(index)), placement, origin));
         }
 
-        m_scene->addItem(new PatternPathItem(shape, piecePen));
+        group->addToGroup(new PatternPathItem(shape, piecePen));
 
         // ── Le décor de la pièce ────────────────────────────────────────────────────────────────
         //
@@ -634,38 +681,73 @@ void WorkspacePage::Draw(const CutPlan &plan)
                 transform.translate(decor.box.left() - origin.x(), decor.box.top() - origin.y());
 
                 item->setTransform(transform);
-                m_scene->addItem(item);
+                group->addToGroup(item);
             }
         }
     }
 
-    m_scene->setSceneRect(
-        QRectF(-20.0, -20.0, plan.binWidthPx + 40.0, plan.usedHeightPx + 40.0));
-    m_zoomed = false; // a plan put on screen is looked at WHOLE
-    FitToScene();
+    group->setPos(seat);
+    m_scene->addItem(group);
 
+    // The cloth in the scene's own coordinates — the seat included, since that is where it is drawn.
+    return QRectF(seat, QSizeF(plan.binWidthPx, plan.usedHeightPx));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto WorkspacePage::FiguresText(const CutPlan &plan, const CutPlan *lining) const -> QString
+{
+    // ⚠️ **Un seul plan se lit exactement comme avant** : ni le nom de l'étoffe, ni le gras, ni un
+    // séparateur de plus. Une paire, elle, nomme ses deux moitiés — deux laizes et deux métrages à
+    // la suite seraient un rébus — et le temps ferme la ligne une seule fois, puisqu'il est celui du
+    // run (oexportoutputs.cpp:305-338).
+    if (lining == nullptr || !lining->ok)
+    {
+        QString detail = ClothFigures(plan);
+        if (plan.seconds > 0.0)
+        {
+            detail += QStringLiteral(" · ") + DurationText(plan.seconds);
+        }
+        return detail;
+    }
+
+    // ── Les deux nappes, une par ligne ────────────────────────────────────────────────────────
+    //
+    // **Décidé par Sophie le 24-10-2026.** Sur une ligne, la paire ne tenait pas : quatre chiffres,
+    // deux unités et deux systèmes de mesure, et la fin de la phrase sortait de l'écran. Une nappe
+    // par ligne, et le temps sur la seconde — il est celui du run, donc il ferme la lecture.
+    //
+    // ⚠️ `&lt;br&gt;` et non « \n » : l'étiquette est en texte riche (le nom des étoffes est en gras), et le
+    // texte riche avale un saut de ligne comme un espace.
+    const QString fabric = QStringLiteral("<b>%1</b> : ").arg(tr("Fabric")) + ClothFigures(plan);
+    const QString cloth = QStringLiteral("<b>%1</b> : ").arg(tr("Lining")) + ClothFigures(*lining);
+
+    QString detail = fabric + QStringLiteral("<br>") + cloth;
+    if (plan.seconds > 0.0)
+    {
+        detail += QStringLiteral(" · ") + DurationText(plan.seconds);
+    }
+    return detail;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto WorkspacePage::ClothFigures(const CutPlan &plan) const -> QString
+{
     // The same line Ostara writes under its cut plan: the cloth in the unit it is bought in, then the
     // same two figures in the units somebody else buys it in — inches for the width, yards for the
     // length, because a bolt is sold one way in one country and the other way in the next.
     const double widthMm = plan.fabricWidthCm * 10.0;
     const double lengthMm = plan.usedHeightPx * kMmPerPx;
 
-    QString detail;
+    QString figures;
     if (plan.foldedFabric)
     {
-        detail += tr("Canvas: half fabric width %1").arg(Cm(widthMm / 2.0)) + QStringLiteral(" · ");
+        figures += tr("Canvas: half fabric width %1").arg(Cm(widthMm / 2.0)) + QStringLiteral(" · ");
     }
 
-    detail += tr("Fabric width %1 · length %2").arg(Cm(widthMm), Cm(lengthMm));
-    detail += QStringLiteral(" · ")
-              + tr("Fabric width %1 · length %2").arg(Inch(widthMm), Yards(lengthMm));
-
-    if (plan.seconds > 0.0)
-    {
-        detail += QStringLiteral(" · %1 s").arg(plan.seconds, 0, 'f', 1);
-    }
-
-    m_detail->setText(detail);
+    figures += tr("Fabric width %1 · length %2").arg(Cm(widthMm), Cm(lengthMm));
+    figures += QStringLiteral(" · ")
+               + tr("Fabric width %1 · length %2").arg(Inch(widthMm), Yards(lengthMm));
+    return figures;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -1280,7 +1362,7 @@ void WorkspacePage::RedrawPrint(bool refit)
 
     if (plan.seconds > 0.0)
     {
-        detail += QStringLiteral(" · ") + tr("%1 s").arg(plan.seconds, 0, 'f', 1);
+        detail += QStringLiteral(" · ") + DurationText(plan.seconds);
     }
 
     m_detail->setText(detail);

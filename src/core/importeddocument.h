@@ -102,6 +102,18 @@ public:
     /// contribute nothing.
     QStringList Pieces(const QStringList &sizeLayerIds) const;
 
+    /// Whether the chosen sizes hold a piece **cut in the lining** — which is the only thing that
+    /// makes a lining plan possible, and therefore the only thing that may offer one.
+    ///
+    /// Read on the payload's own figures (`cutLining` on each piece), not on the drawing: the
+    /// drawing carries no quantity anywhere, so a reader that looked for it there would answer
+    /// « no lining » to a garment that has one. A piece nobody filled in reads 0, and 0 is not
+    /// « once » — it is « not cut in that cloth at all ».
+    ///
+    /// The whole document is asked when no size is given: the sizes are the first step's answer, and
+    /// a journey that has not asked it yet still has a pattern.
+    bool HasLiningPieces(const QStringList &sizeLayerIds) const;
+
     /// Why the file could not be read, when it could not. Empty is a document Rabnest can use.
     QString error() const { return m_error; }
     bool isValid() const { return m_error.isEmpty(); }

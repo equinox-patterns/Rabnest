@@ -211,7 +211,9 @@ RabnestWindow::RabnestWindow(QWidget *parent)
 
         if (index < m_plans.size())
         {
-            m_workspace->Show(m_plans.at(index));
+            // The pair, when there is one: the fabric, and the lining laid beside it.
+            m_workspace->Show(m_plans.at(index), m_liningPlans.contains(index) ? &m_liningPlans[index]
+                                                                              : nullptr);
         }
     });
 
@@ -278,14 +280,22 @@ void RabnestWindow::DeleteOutput(int index)
     // the plan one row off.
     m_plans.remove(index);
     m_printOutputs.remove(index);
+    m_liningPlans.remove(index);
 
-    // The map is keyed by ROW, so every key above the one removed moves down with its row.
+    // The maps are keyed by ROW, so every key above the one removed moves down with its row.
     QHash<int, PrintOutput> reindexed;
     for (auto it = m_printOutputs.cbegin(); it != m_printOutputs.cend(); ++it)
     {
         reindexed.insert(it.key() > index ? it.key() - 1 : it.key(), it.value());
     }
     m_printOutputs = reindexed;
+
+    QHash<int, CutPlan> liningLeft;
+    for (auto it = m_liningPlans.cbegin(); it != m_liningPlans.cend(); ++it)
+    {
+        liningLeft.insert(it.key() > index ? it.key() - 1 : it.key(), it.value());
+    }
+    m_liningPlans = liningLeft;
 
     m_runs->RemoveRun(index);
 
@@ -700,7 +710,8 @@ void RabnestWindow::ShowOutputInfo(int index)
         return;
     }
 
-    OutputInfoDialog dialog(m_plans.at(index), this);
+    OutputInfoDialog dialog(m_plans.at(index),
+                            m_liningPlans.contains(index) ? &m_liningPlans[index] : nullptr, this);
     dialog.exec();
 }
 
@@ -729,6 +740,7 @@ void RabnestWindow::BackHome()
     // Nothing of the previous PDF survives: not the plans, not the rows, not the drawing, not the
     // document the next output would have been generated from.
     m_plans.clear();
+    m_liningPlans.clear();
     m_runs->Clear();
     m_workspace->Clear();
 
@@ -767,7 +779,8 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
 
     connect(m_overlay, &ImportOverlay::PrintRequested, this, &RabnestWindow::GeneratePrint);
 
-    connect(m_overlay, &ImportOverlay::Finished, this, [this](const QVector<CutPlan> &plans) {
+    connect(m_overlay, &ImportOverlay::Finished, this,
+            [this](const QVector<CutPlan> &plans, const QVector<CutPlan> &lining) {
         // The pattern the journey settled is kept BEFORE the panel dies: laying the same pieces out
         // on another cloth is the next thing she may want, and it must not cost another import.
         if (!plans.isEmpty() && m_overlay->document().isValid())
@@ -783,10 +796,18 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
 
         // The dock selects the row it just added, and the selection is what puts a plan on the
         // canvas: one path to the screen, so the list and the drawing cannot disagree.
-        for (const CutPlan &plan : plans)
+        for (int index = 0; index < plans.size(); ++index)
         {
-            m_plans.append(plan);
-            m_runs->AddRun(plan);
+            m_plans.append(plans.at(index));
+
+            // The lining belongs to the SAME row: it is the same size, cut in the other cloth, and
+            // the row is the size. A plan that is not `ok` is a size nobody lined — nothing to keep.
+            if (index < lining.size() && lining.at(index).ok)
+            {
+                m_liningPlans.insert(m_plans.size() - 1, lining.at(index));
+            }
+
+            m_runs->AddRun(plans.at(index));
         }
     });
 }

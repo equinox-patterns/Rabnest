@@ -87,7 +87,14 @@ class OutputInfoDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit OutputInfoDialog(const CutPlan &plan, QWidget *parent = nullptr);
+    /// A cutting plan, and — when the run asked for a pair — its LINING.
+    ///
+    /// **The pair is answered as one output with two halves**, because that is what she made: one
+    /// row in the dock, one run, two cloths. The settings are the run's and are said once; the two
+    /// widths, the two lengths and the two piece lists are said for each cloth, since they are the
+    /// only thing the two do not share.
+    explicit OutputInfoDialog(const CutPlan &plan, const CutPlan *lining = nullptr,
+                              QWidget *parent = nullptr);
     explicit OutputInfoDialog(const PrintInfo &print, QWidget *parent = nullptr);
 
 private:

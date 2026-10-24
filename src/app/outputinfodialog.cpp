@@ -66,17 +66,41 @@ auto AddRow(QFormLayout *form, const QString &label, const QString &value) -> vo
 /// du tissu déplié : c'est une propriété du patron — cette pièce-là se coupe dans le pli, un point
 /// c'est tout — et non la façon dont ce plan-ci l'a posée. Le plan, lui, déplie la pièce, la double
 /// ou en pose la moitié selon le tissu ; rien de cela ne change ce que la pièce EST.
-auto CutText(const CutPiece &piece) -> QString
+auto CutText(const CutPiece &piece, Material material) -> QString
 {
-    return piece.onFold ? QObject::tr("Cut %1 on the fold").arg(piece.cutFabric)
-                        : QObject::tr("Cut %1").arg(piece.cutFabric);
+    // The figure of the cloth this list is about: a piece lined twice is « Cut 2 » in the lining's
+    // list and « Cut 1 » in the fabric's, and neither is the other's.
+    const int cut = material == Material::Lining ? piece.cutLining : piece.cutFabric;
+    return piece.onFold ? QObject::tr("Cut %1 on the fold").arg(cut)
+                        : QObject::tr("Cut %1").arg(cut);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+/// The pieces of one cloth, in the order the plan lays them, one entry per NAME — a piece cut twice
+/// is one line saying « Cut 2 », not two lines.
+auto PieceList(const CutPlan &plan) -> QVector<CutPiece>
+{
+    QVector<CutPiece> pieces;
+    for (const CutPiece &pose : plan.poses)
+    {
+        const bool known =
+            std::any_of(pieces.cbegin(), pieces.cend(),
+                        [&pose](const CutPiece &seen) { return seen.name == pose.name; });
+        if (!known)
+        {
+            pieces.append(pose);
+        }
+    }
+    return pieces;
 }
 }  // namespace
 
 //---------------------------------------------------------------------------------------------------------------------
-OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, QWidget *parent)
+OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, const CutPlan *lining, QWidget *parent)
     : QDialog(parent)
 {
+    const bool pair = lining != nullptr && lining->ok;
+
     setWindowTitle(tr("%1 - Cut").arg(plan.sizeLabel));
     setModal(true);
 
@@ -88,6 +112,11 @@ OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, QWidget *parent)
     auto *asked = new QGroupBox(tr("What this output was asked for"), this);
     auto *askedForm = new QFormLayout(asked);
     AddRow(askedForm, tr("Fabric width"), Cm(plan.fabricWidthCm));
+    // The lining's width is the one setting the pair does not share — so it is the one line added.
+    if (pair)
+    {
+        AddRow(askedForm, tr("Lining width"), Cm(lining->fabricWidthCm));
+    }
     AddRow(askedForm, tr("Margin from the edges"), Cm(plan.marginCm));
     AddRow(askedForm, tr("Gap between two pieces"), Cm(plan.gapCm));
     AddRow(askedForm, tr("The fabric is folded"), YesNo(plan.foldedFabric));
@@ -99,9 +128,13 @@ OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, QWidget *parent)
     auto *madeForm = new QFormLayout(made);
     AddRow(madeForm, tr("Canvas width"), Cm(plan.binWidthPx * kCmPerPx));
     AddRow(madeForm, tr("Fabric length"), Cm(plan.usedHeightPx * kCmPerPx));
+    if (pair)
+    {
+        AddRow(madeForm, tr("Lining length"), Cm(lining->usedHeightPx * kCmPerPx));
+    }
     if (plan.seconds > 0.0)
     {
-        AddRow(madeForm, tr("Time"), tr("%1 s").arg(plan.seconds, 0, 'f', 1));
+        AddRow(madeForm, tr("Time"), DurationText(plan.seconds));
     }
     layout->addWidget(made);
 
@@ -116,34 +149,45 @@ OutputInfoDialog::OutputInfoDialog(const CutPlan &plan, QWidget *parent)
     // la façon dont elle a été posée. Les poses du plan, elles, sont déjà expansées (quantité sur
     // tissu plat, moitié sur tissu plié, jumelle du pli), donc on ne compte pas les poses : on lit
     // la PREMIÈRE pose de chaque nom, qui porte les chiffres du patron.
-    QVector<CutPiece> pieces;
-    for (const CutPiece &pose : plan.poses)
+    // ⚠️ **Deux listes pour une paire, une seule pour un plan.** Les deux étoffes ne portent pas les
+    // mêmes pièces : la doublure en compte quatre là où le tissu en compte seize, et une liste unique
+    // additionnerait deux choses que la coupe sépare.
+    QVector<QPair<QString, const CutPlan *>> cloths;
+    cloths.append({QString(), &plan});
+    if (pair)
     {
-        const bool known =
-            std::any_of(pieces.cbegin(), pieces.cend(),
-                        [&pose](const CutPiece &seen) { return seen.name == pose.name; });
-        if (!known)
-        {
-            pieces.append(pose);
-        }
+        cloths.append({tr("Lining"), lining});
     }
 
     auto *piecesBox = new QGroupBox(tr("Pieces"), this);
     auto *piecesLayout = new QVBoxLayout(piecesBox);
     piecesLayout->setSpacing(6);
 
-    piecesLayout->addWidget(new QLabel(tr("Pieces: %1").arg(pieces.size()), piecesBox));
-
-    auto *pieceRows = new QFormLayout();
-    pieceRows->setLabelAlignment(Qt::AlignLeft);
-    pieceRows->setHorizontalSpacing(24);
-    for (const CutPiece &piece : pieces)
+    for (const auto &cloth : cloths)
     {
-        auto *count = new QLabel(CutText(piece), piecesBox);
-        count->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        pieceRows->addRow(piece.name, count);
+        const Material material = cloth.second == lining ? Material::Lining : Material::Fabric;
+        const QVector<CutPiece> pieces = PieceList(*cloth.second);
+
+        if (!cloth.first.isEmpty())
+        {
+            // The cloth's name opens its half, in the same words the figure line uses.
+            auto *title = new QLabel(QStringLiteral("<b>%1</b>").arg(cloth.first), piecesBox);
+            piecesLayout->addWidget(title);
+        }
+
+        piecesLayout->addWidget(new QLabel(tr("Pieces: %1").arg(pieces.size()), piecesBox));
+
+        auto *pieceRows = new QFormLayout();
+        pieceRows->setLabelAlignment(Qt::AlignLeft);
+        pieceRows->setHorizontalSpacing(24);
+        for (const CutPiece &piece : pieces)
+        {
+            auto *count = new QLabel(CutText(piece, material), piecesBox);
+            count->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            pieceRows->addRow(piece.name, count);
+        }
+        piecesLayout->addLayout(pieceRows);
     }
-    piecesLayout->addLayout(pieceRows);
 
     layout->addWidget(piecesBox);
 

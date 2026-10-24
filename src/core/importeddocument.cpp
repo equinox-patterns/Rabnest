@@ -33,6 +33,7 @@
 #include <QDomDocument>
 #include <QDomElement>
 #include <QFileInfo>
+#include <QSet>
 #include <QStringList>
 
 #include <algorithm>
@@ -312,4 +313,50 @@ auto ImportedDocument::Pieces(const QStringList &sizeLayerIds) const -> QStringL
     }
 
     return pieces;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto ImportedDocument::HasLiningPieces(const QStringList &sizeLayerIds) const -> bool
+{
+    if (m_payload.isEmpty())
+    {
+        return false;
+    }
+
+    QDomDocument svg;
+    if (!svg.setContent(m_payload))
+    {
+        return false;
+    }
+
+    // The pieces are named by their SIZE's label, and the sizes the user kept are named by their
+    // layer's id: the two vocabularies meet here, once.
+    QSet<QString> labels;
+    for (const ImportedLayer &layer : m_layers)
+    {
+        if (sizeLayerIds.isEmpty() || sizeLayerIds.contains(layer.id))
+        {
+            labels.insert(layer.label);
+        }
+    }
+
+    const QDomNodeList pieces = svg.documentElement()
+                                    .firstChildElement(QStringLiteral("metadata"))
+                                    .firstChildElement(QStringLiteral("pieces"))
+                                    .elementsByTagName(QStringLiteral("piece"));
+    for (int index = 0; index < pieces.count(); ++index)
+    {
+        const QDomElement piece = pieces.at(index).toElement();
+        if (!labels.contains(piece.attribute(QStringLiteral("size"))))
+        {
+            continue;
+        }
+
+        if (piece.attribute(QStringLiteral("cutLining")).toInt() > 0)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }

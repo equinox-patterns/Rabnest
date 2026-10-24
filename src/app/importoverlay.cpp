@@ -64,6 +64,17 @@ constexpr int kCardWidth = 760;
 constexpr int kCardHeight = 660;
 constexpr int kCardInset = 48;
 
+/// What one size of a run gives: its plan, and — when the run asked for a pair — the lining's.
+///
+/// **The two travel together because they are one size's answer.** A lined garment is cut twice, and
+/// the row of the dock is the size: two lists could drift apart by a bad index, one struct cannot.
+struct RunPlans
+{
+    CutPlan fabric;
+    CutPlan lining;
+    bool hasLining = false;
+};
+
 
 //---------------------------------------------------------------------------------------------------------------------
 void Pump()
@@ -130,7 +141,7 @@ ImportOverlay::ImportOverlay(QWidget *parent)
     cancelRow->addWidget(m_cancel);
     cardLayout->addLayout(cancelRow);
 
-    connect(m_cancel, &QPushButton::clicked, this, [this] { Finish({}); });
+    connect(m_cancel, &QPushButton::clicked, this, [this] { Finish({}, {}); });
 
     m_import = new ImportPage(m_stack);
     m_sizes = new ChecklistPage(tr("Sizes"), tr("Tick the sizes to keep."), m_stack);
@@ -186,7 +197,7 @@ void ImportOverlay::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape)
     {
-        Finish({});
+        Finish({}, {});
         return;
     }
 
@@ -194,9 +205,9 @@ void ImportOverlay::keyPressEvent(QKeyEvent *event)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void ImportOverlay::Finish(const QVector<CutPlan> &plans)
+void ImportOverlay::Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining)
 {
-    emit Finished(plans);
+    emit Finished(plans, lining);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -307,6 +318,8 @@ void ImportOverlay::ShowCutPlan()
     }
 
     m_cutPlan->ClearError();
+    // A lining plan is offered when the pattern has a piece cut in the lining — and only then.
+    m_cutPlan->SetLiningAvailable(m_document.HasLiningPieces(m_sizeIds));
     m_cutPlan->SetSizes(sizes);
     ShowPage(m_cutPlan);
 }
@@ -335,21 +348,45 @@ void ImportOverlay::Generate()
 
     const CutPlanRequest request = m_cutPlan->Request();
     const QStringList sizes = m_cutPlan->CheckedSizeIds();
+    const bool lining = m_cutPlan->IsLining();
+
+    // ── La doublure : la même requête, une autre laize ─────────────────────────────────────────
+    //
+    // **Rien d'autre ne change.** Le pli, le sens, la marge et l'écart sont ceux du run et valent
+    // pour les deux nappes ; seule la largeur est propre à la doublure, parce qu'elle s'achète sur
+    // son propre rouleau. C'est la même leçon que la requête d'Ostara : `documentLiningWidthMm` est
+    // le seul champ qu'une paire ajoute.
+    CutPlanRequest liningRequest = request;
+    liningRequest.widthCm = m_cutPlan->LiningWidthCm();
+
+    const Cloth cloth = request.foldedFabric ? Cloth::Folded : Cloth::Flat;
 
     // The payload is small and is read once, on this thread: what is long is the laying out, and
     // that is what gets its own thread below.
     QVector<CutSize> loaded;
     QString error;
-    if (!Pattern::Load(m_document, sizes, m_pieceIds,
-                       request.foldedFabric ? Cloth::Folded : Cloth::Flat, loaded, &error))
+    if (!Pattern::Load(m_document, sizes, m_pieceIds, cloth, loaded, &error, Material::Fabric))
+    {
+        m_cutPlan->ShowError(error);
+        return;
+    }
+
+    // Le jeu de pièces de la doublure, lu dans SA matière : une pièce sans quantité de doublure n'y
+    // entre pas, et une pièce taillée dans les deux étoffes y entre avec sa propre quantité. Une
+    // taille sans pièce de doublure n'a pas de plan de doublure — elle garde son rang, vide.
+    QVector<CutSize> liningLoaded;
+    if (lining && !Pattern::Load(m_document, sizes, m_pieceIds, cloth, liningLoaded, &error,
+                                 Material::Lining))
     {
         m_cutPlan->ShowError(error);
         return;
     }
 
     m_busy = new BusyDialog(this, QStringLiteral("Rabnest"),
-                            tr("Laying the pieces out on the fabric…"),
-                            tr("Laying the pieces out on the fabric — size %1 of %2…"));
+                            lining ? tr("Laying the pieces out on the fabric and the lining…")
+                                   : tr("Laying the pieces out on the fabric…"),
+                            lining ? tr("Laying the pieces out — size %1 of %2…")
+                                   : tr("Laying the pieces out on the fabric — size %1 of %2…"));
     m_busy->SetProgress(0, loaded.size());
     m_busy->show();
     Pump();
@@ -364,7 +401,7 @@ void ImportOverlay::Generate()
     auto *pool = new QThreadPool(this);
     pool->setMaxThreadCount(1);  // one size at a time: the same plan as a sequential run, always
 
-    auto *watcher = new QFutureWatcher<CutPlan>(this);
+    auto *watcher = new QFutureWatcher<RunPlans>(this);
 
     connect(watcher, &QFutureWatcherBase::progressValueChanged, this,
             [this, watcher, clock](int done) {
@@ -375,7 +412,7 @@ void ImportOverlay::Generate()
             });
 
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, clock, pool] {
-        const QVector<CutPlan> plans = watcher->future().results();
+        const QVector<RunPlans> runs = watcher->future().results();
 
         const double seconds = clock->elapsed() / 1000.0;
         delete clock;
@@ -388,32 +425,84 @@ void ImportOverlay::Generate()
             m_busy = nullptr;
         }
 
+        QVector<CutPlan> plans;
+        QVector<CutPlan> liningPlans;
+        plans.reserve(runs.size());
+        liningPlans.reserve(runs.size());
+
         // One failure fails the run: a panel that closed on a half-made set of plans would leave her
-        // with runs she did not ask for and no way to say which.
-        for (const CutPlan &plan : plans)
+        // with runs she did not ask for and no way to say which. The lining fails its own size the
+        // same way — a pair half laid out is not a pair.
+        for (const RunPlans &run : runs)
         {
-            if (!plan.ok)
+            if (!run.fabric.ok)
             {
-                m_cutPlan->ShowError(plan.error);
+                m_cutPlan->ShowError(run.fabric.error);
                 return;
             }
+
+            if (run.hasLining && !run.lining.ok)
+            {
+                m_cutPlan->ShowError(run.lining.error);
+                return;
+            }
+
+            plans.append(run.fabric);
+
+            // ⚠️ **The lists stay PARALLEL, empty plans included.** A size with nothing to line keeps
+            // its rank here and is simply not stored by the window: two lists read by the same index
+            // must be the same length, or a size would be shown its neighbour's lining.
+            liningPlans.append(run.lining);
         }
 
         Q_UNUSED(seconds)
-        Finish(plans);
+        Finish(plans, liningPlans);
     });
 
-    // One job per size, and the futures are read in the order the sizes were asked for.
-    watcher->setFuture(QtConcurrent::mapped(pool, loaded, [request](const CutSize &size) {
-        // The figure the user reads is the time HER plan cost, so each one is measured on its own,
-        // around the engine, and it travels inside the plan.
-        QElapsedTimer one;
-        one.start();
+    // One job per size, and the futures are read in the order the sizes were asked for. A pair does
+    // its two passes here, one after the other, so that a size is ONE unit of work: the bar counts
+    // sizes, and a lining pass that had its own count would tell her she is on size 11 of 16.
+    watcher->setFuture(QtConcurrent::mapped(
+        pool, loaded, [request, liningRequest, liningLoaded, lining](const CutSize &size) {
+            // The figure the user reads is the time HER plan cost, so each one is measured on its
+            // own, around the engine, and it travels inside the plan.
+            QElapsedTimer one;
+            one.start();
 
-        CutPlan plan = CutPlan::Generate(size, request, size.decor);
-        plan.seconds = one.elapsed() / 1000.0;
-        return plan;
-    }));
+            RunPlans out;
+            out.fabric = CutPlan::Generate(size, request, size.decor);
+            out.fabric.seconds = one.elapsed() / 1000.0;
+
+            if (!lining)
+            {
+                return out;
+            }
+
+            // Its own pieces for the SAME size — found by the label, which is what names a size on
+            // both sides, and which the two loads carry in the same order anyway.
+            const CutSize *liningSize = nullptr;
+            for (const CutSize &candidate : liningLoaded)
+            {
+                if (candidate.label == size.label)
+                {
+                    liningSize = &candidate;
+                    break;
+                }
+            }
+
+            // A size nobody lined has no lining plan: not an empty sheet on the canvas, nothing.
+            if (liningSize == nullptr || liningSize->poses.isEmpty())
+            {
+                return out;
+            }
+
+            QElapsedTimer two;
+            two.start();
+            out.lining = CutPlan::Generate(*liningSize, liningRequest, liningSize->decor);
+            out.lining.seconds = two.elapsed() / 1000.0;
+            out.hasLining = true;
+            return out;
+        }));
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -434,5 +523,5 @@ void ImportOverlay::ReduceLayers(const QString &target)
     }
 
     QMessageBox::information(this, QStringLiteral("Rabnest"), tr("File written: %1").arg(target));
-    Finish({});
+    Finish({}, {});
 }

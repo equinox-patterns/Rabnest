@@ -724,7 +724,7 @@ auto ReadMirroredDecor(const QDomElement &decorElement, const QPointF &alignDelt
 //---------------------------------------------------------------------------------------------------------------------
 auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                    const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
-                   QString *error) -> bool
+                   QString *error, Material material) -> bool
 {
     out.clear();
 
@@ -1004,11 +1004,24 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 ink = Shifted(InkPaths(element.attribute(inkAttribute)), alignDelta);
             }
 
+            // ── La quantité, dans la matière demandée ──────────────────────────────────────────────
+            //
+            // ⚠️ **0 n'est pas « une fois », c'est « pas du tout »** — et la figure se lit dans la
+            // matière du plan, jamais dans une autre : une pièce taillée en doublure seulement n'a
+            // rien à faire dans le plan de tissu, et réciproquement. Aucune ne se replie sur l'autre.
+            //
+            // Un plan de coupe lit donc la quantité de SA matière ; une impression ne lit rien —
+            // `Cloth::AsDrawn` pose chaque pièce une fois et la matière ne la concerne pas — et garde
+            // le test d'hier, sur le tissu, pour que son dessin soit exactement le même qu'avant.
             const int cutFabric = element.attribute(QStringLiteral("cutFabric")).toInt();
-            if (cutFabric <= 0)
+            const int cutLining = element.attribute(QStringLiteral("cutLining")).toInt();
+            const int cut = (cloth == Cloth::AsDrawn || material == Material::Fabric) ? cutFabric
+                                                                                     : cutLining;
+            if (cut <= 0)
             {
-                // Not cut in this cloth at all — a piece somebody left blank in the cartouche, which
-                // is not « once » but « not at all », and takes no part in the plan.
+                // Not cut in this cloth at all — a piece somebody left blank in the cartouche, or a
+                // piece that is cut in the other cloth, which is not « once » but « not at all », and
+                // takes no part in this plan.
                 continue;
             }
 
@@ -1084,7 +1097,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             pose.grain = element.attribute(QStringLiteral("grain")).toDouble();
             pose.arrows = element.attribute(QStringLiteral("arrows")).toInt();
             pose.cutFabric = cutFabric;
-            pose.cutLining = element.attribute(QStringLiteral("cutLining")).toInt();
+            pose.cutLining = cutLining;
             // Both in the contour's frame, so both take the alignment with it.
             if (axis.size() >= 4)
             {
@@ -1109,10 +1122,10 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // payload writes one record per piece per size — the drawing shows that piece once —
             // and « cut 4 » is a figure the cartouche carries, not a request to print it four
             // times. Only a cutting plan expands it, because only a plan produces pieces to cut.
-            int quantity = cloth == Cloth::AsDrawn ? 1 : cutFabric;
+            int quantity = cloth == Cloth::AsDrawn ? 1 : cut;
             if (cloth == Cloth::Folded && !onFold)
             {
-                quantity = (cutFabric + 1) / 2;
+                quantity = (cut + 1) / 2;
             }
             if (quantity < 1)
             {
@@ -1200,6 +1213,16 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
 
         if (size.poses.isEmpty())
         {
+            // ⚠️ **Une taille sans pièce de doublure n'est pas un défaut : elle n'a pas de plan de
+            // doublure, et c'est tout.** Le tissu, lui, ne se tait pas — un plan de tissu vide est une
+            // erreur de lecture du PDF. La taille est tout de même rendue, vide, pour que la doublure
+            // garde l'index de sa taille : deux listes appariées se lisent par le même rang.
+            if (material == Material::Lining)
+            {
+                out.append(size);
+                continue;
+            }
+
             if (error != nullptr)
             {
                 *error = QObject::tr("No piece of \"%1\" can be cut: none of them carries a "

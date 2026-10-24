@@ -143,6 +143,14 @@ private:
     /// Every plan on screen, in the dock's order — the dock says which row, this says which plan.
     QVector<CutPlan> m_plans;
 
+    /// The LINING plan of a row, when the run asked for a pair — keyed by the same row.
+    ///
+    /// **A separate map, and keyed by row, for the same reason the print outputs are:** the fabric's
+    /// plan keeps the shape it has always had, so everything that already reads one plan — the export,
+    /// the image, the information sheet — goes on reading the fabric, and only the canvas and the
+    /// figure line learn that there is a second cloth.
+    QHash<int, CutPlan> m_liningPlans;
+
     /// The print panel, and the output it is working on.
     QDockWidget *m_printDock = nullptr;
     PrintPanel *m_printPanel = nullptr;

@@ -36,6 +36,7 @@
 #include <QWidget>
 
 class QCheckBox;
+class QFormLayout;
 class QTabWidget;
 class PrintPanel;
 class QDoubleSpinBox;
@@ -84,6 +85,26 @@ public:
     /// The print settings of this run, when the Print tab is the one being generated.
     auto PrintSettings() const -> PrintPanel *;
 
+    /// Whether this run also lays out the **lining** — the second plan of a pair.
+    ///
+    /// A lined garment is cut twice: once in the fabric, once in the lining. The run makes both
+    /// plans, and nothing separates them but the piece set and the width — the fold, the direction,
+    /// the margin and the gap are the run's own and belong to both. So the page asks for ONE thing
+    /// more, the lining's width, and only when the pattern has a piece cut in the lining.
+    auto IsLining() const -> bool;
+
+    /// The lining's own width, in centimetres. **It is the fabric's until she gives it one**: a
+    /// lining is bought on its own bolt, and until that bolt is named it is the same one.
+    auto LiningWidthCm() const -> double;
+
+    /// Says whether a lining plan is at all possible — the pattern has a piece cut in the lining.
+    ///
+    /// The box is ticked the moment it becomes possible, and only then: a box that re-ticked itself
+    /// on every visit would put back a cross she has just taken off. When it cannot be, it is off
+    /// and disabled — offering a lining plan for a garment that has none is a question with no
+    /// answer in it.
+    void SetLiningAvailable(bool available);
+
 signals:
     void Continue();
     void Back();
@@ -91,17 +112,29 @@ signals:
 private:
     void UpdateContinue();
     void UpdateGenerateText();
+    void UpdateLiningRow();
 
     QVector<QPair<QString, QCheckBox *>> m_boxes;  // id -> box, in list order
     QVBoxLayout *m_boxesLayout = nullptr;
     QWidget *m_boxesBlock = nullptr;
+    QFormLayout *m_form = nullptr;
     QLabel *m_error = nullptr;
     QDoubleSpinBox *m_width = nullptr;
     QDoubleSpinBox *m_margin = nullptr;
     QDoubleSpinBox *m_gap = nullptr;
     QCheckBox *m_folded = nullptr;
     QCheckBox *m_oneWay = nullptr;
+    QCheckBox *m_lining = nullptr;
+    QDoubleSpinBox *m_liningWidth = nullptr;
     QPushButton *m_continue = nullptr;
+
+    /// Whether the lining width was ever given a value of her own. Until it is, the field follows
+    /// the fabric's, so that ticking « Lining » on the same bolt asks nothing twice.
+    bool m_liningEdited = false;
+
+    /// Whether a lining plan was possible the last time the page looked. The box is ticked when it
+    /// BECOMES possible, not while it is — see SetLiningAvailable.
+    bool m_liningWasAvailable = false;
 
     QTabWidget *m_tabs = nullptr;
     PrintPanel *m_print = nullptr;

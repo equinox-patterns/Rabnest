@@ -33,6 +33,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -142,6 +143,28 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     m_width = CmSpin(140.0, 400.0, cutting);
     form->addRow(tr("Fabric width"), m_width);
 
+    // ── La doublure ────────────────────────────────────────────────────────────────────────────
+    //
+    // **Une seule question de plus, et c'est une largeur.** Un vêtement doublé se taille deux fois —
+    // le tissu, puis la doublure — et les deux nappes se lisent côte à côte. Ce qui les sépare n'est
+    // pas un réglage : c'est le jeu de pièces, chacune lue dans sa propre quantité de coupe. Tout le
+    // reste — le pli, le sens, les deux écarts — est commun, et c'est pourquoi la doublure n'a
+    // qu'un champ : sa laize.
+    //
+    // La case s'active seule quand le patron a une pièce taillée en doublure, et la ligne de la
+    // laize ne s'ouvre que cochée : une largeur qu'on ne peut pas encore employer est un champ de
+    // trop dans un formulaire qui en compte déjà cinq.
+    m_lining = new QCheckBox(tr("Lining"), cutting);
+    m_lining->setCursor(Qt::PointingHandCursor);
+    // Off until the pattern says it can be: a lining plan is offered when there is one to make.
+    m_lining->setEnabled(false);
+    form->addRow(m_lining);
+
+    m_liningWidth = CmSpin(140.0, 400.0, cutting);
+    form->addRow(tr("Lining width"), m_liningWidth);
+
+    m_form = form;
+
     m_margin = CmSpin(0.5, 20.0, cutting);
     form->addRow(tr("Margin from the edges"), m_margin);
 
@@ -243,7 +266,79 @@ CutPlanPage::CutPlanPage(QWidget *parent)
         // What she typed is the cloth as it comes off the bolt; the halving is the plan's business,
         // and the field must not change under her hands when she ticks the fold.
         m_width->setSuffix(folded ? tr(" cm (unfolded)") : tr(" cm"));
+        // The lining's width is read the same way — the bolt as it comes, not as it is folded — so
+        // it takes the same word.
+        m_liningWidth->setSuffix(folded ? tr(" cm (unfolded)") : tr(" cm"));
     });
+
+    // ── La doublure suit le tissu tant qu'on ne lui a rien donné ─────────────────────────────────
+    //
+    // Le champ est en lecture seule tant qu'elle n'y a pas touché : la doublure est souvent le même
+    // métrage que le tissu, et la lui demander deux fois serait la demander pour rien. La première
+    // valeur écrite à la main la détache, et elle ne suit plus.
+    connect(m_width, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+        if (m_liningEdited)
+        {
+            return;
+        }
+        // ⚠️ Sans le bloqueur, le champ « doublure » émettrait sa propre valeur et se détacherait
+        // lui-même du tissu : le suivi ne durerait qu'un cran.
+        const QSignalBlocker blocker(m_liningWidth);
+        m_liningWidth->setValue(value);
+    });
+    connect(m_liningWidth, &QDoubleSpinBox::valueChanged, this,
+            [this](double) { m_liningEdited = true; });
+
+    connect(m_lining, &QCheckBox::toggled, this, [this](bool) { UpdateLiningRow(); });
+
+    UpdateLiningRow();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CutPlanPage::IsLining() const -> bool
+{
+    return m_lining->isChecked() && m_lining->isEnabled();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CutPlanPage::LiningWidthCm() const -> double
+{
+    return m_liningWidth->value();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::SetLiningAvailable(bool available)
+{
+    if (!available)
+    {
+        m_lining->setChecked(false);
+    }
+    else if (!m_liningWasAvailable)
+    {
+        // It BECAME possible: the box is ticked once, here. Not on every visit — that would put
+        // back a cross she has just taken off.
+        m_lining->setChecked(true);
+    }
+
+    m_liningWasAvailable = available;
+    m_lining->setEnabled(available);
+    UpdateLiningRow();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::UpdateLiningRow()
+{
+    // The width is asked only when there is a lining plan to ask it for. `setRowVisible` also hides
+    // the label, which is the whole reason the row is a row.
+    m_form->setRowVisible(m_liningWidth, m_lining->isChecked());
+
+    // The row can open on a width she never gave: it must then show the fabric's, which may have
+    // changed while it was hidden.
+    if (!m_liningEdited)
+    {
+        const QSignalBlocker blocker(m_liningWidth);
+        m_liningWidth->setValue(m_width->value());
+    }
 }
 
 //---------------------------------------------------------------------------------------------------------------------

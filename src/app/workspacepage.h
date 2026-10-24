@@ -60,8 +60,16 @@ public:
 
     explicit WorkspacePage(QWidget *parent = nullptr);
 
-    /// Shows one plan, and nothing else: the list of them is the dock's, not the canvas's.
-    void Show(const CutPlan &plan);
+    /// Shows one plan — and its LINING, when the run asked for a pair.
+    ///
+    /// **Ostara's own seat: the lining to the RIGHT of the fabric, one inch away** (`kLiningGapPx`,
+    /// `oexportoutputs.cpp:103`). One scene for both, and that is the whole point: one zoom frames
+    /// them together — you read them side by side, which is how a pair is read — and the figure line
+    /// under the canvas speaks of one run, not of two.
+    ///
+    /// @param lining the lining plan, or null. A plan that is not `ok` is a size nobody lined and is
+    ///        drawn as nothing at all.
+    void Show(const CutPlan &plan, const CutPlan *lining = nullptr);
 
     /// Shows a PRINT run, as Ostara's own export canvas shows it: the sheets, their paper, the
     /// frame, the scissors, the marks, the numbers, and the cover page at its seat.
@@ -139,7 +147,22 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    void Draw(const CutPlan &plan);
+    void Draw(const CutPlan &plan, const CutPlan *lining);
+
+    /// Draws ONE cloth at @p seat, and returns the rectangle it occupies in the scene.
+    ///
+    /// The seat is the only thing that tells the two cloths apart on screen: the same code draws
+    /// both, so the lining carries its pieces, its ink, its decor and its children exactly as the
+    /// fabric does, and a defect cannot exist on one side and not the other.
+    auto DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRectF;
+
+    /// The figures under the canvas. One cloth reads as it has always read; a pair names its two
+    /// halves, because two widths and two lengths in a row would otherwise be a riddle.
+    auto FiguresText(const CutPlan &plan, const CutPlan *lining) const -> QString;
+
+    /// One cloth's figures: the half width when it is folded, the width and the length in
+    /// centimetres, then the same two in inches and yards.
+    auto ClothFigures(const CutPlan &plan) const -> QString;
     void ZoomBy(double factor);
 
     /// Fits the whole scene in the viewport, and re-lays the strokes for that scale.

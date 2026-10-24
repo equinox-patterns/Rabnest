@@ -41,7 +41,35 @@
 #include <QString>
 #include <QVector>
 
+#include <QObject>
+
 #include <vector>
+
+/**
+ * @brief A run's duration as it is read: seconds below a minute, minutes and seconds above it.
+ *
+ * **Décidé par Sophie le 24-10-2026** : passé la minute, les secondes cessent d'être un chiffre
+ * qu'on tient dans la tête — « 123 s » se lit « deux minutes », quoi qu'il dise. On écrit donc
+ * « 2 min 03 », et les secondes gardent deux chiffres pour que la ligne ne danse pas d'un run à
+ * l'autre.
+ *
+ * **The same word serves every run** — a cutting plan and a print — because it is the same figure
+ * read by the same person: two spellings of one duration would read as two different durations.
+ *
+ * Written here, beside the `seconds` every plan carries, so that no second reader invents a second
+ * format.
+ */
+inline auto DurationText(double seconds) -> QString
+{
+    if (seconds < 60.0)
+    {
+        return QObject::tr("%1 s").arg(seconds, 0, 'f', 1);
+    }
+
+    // ⚠️ Arrondi AVANT le partage, sans quoi 119,6 s s'écrirait « 1 min 60 ».
+    const int total = qRound(seconds);
+    return QObject::tr("%1 min %2").arg(total / 60).arg(total % 60, 2, 10, QLatin1Char('0'));
+}
 
 /// One rectangle of folded cloth — where it is in the strip, and which side holds the fold.
 ///
