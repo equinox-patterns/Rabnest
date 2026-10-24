@@ -831,6 +831,75 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // donc pas être celui de la taille demandée : à la plus grande taille, où cet écart vaut zéro, le
     // contenu partait vers la droite de tout ce que la référence, elle, portait.
     QHash<QString, QPointF> referenceAlignDelta;
+    // Le coin haut-gauche de la forme POSÉE, sans l'écart d'alignement. C'est le repère auquel le
+    // décor d'une pièce est accroché : il est dessiné contre les bords de sa pièce, pas dans un repère
+    // absolu. Les tailles ne se superposant pas, ce coin s'en va d'une taille à l'autre — et c'est
+    // exactement ce que le décor doit suivre pour rester à la même distance du bord.
+    QHash<QString, QPointF> referenceFold;
+    const auto laidCorner = [cloth](const QDomElement &element) -> QPointF
+    {
+        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
+        const bool storedFolded =
+            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
+        const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
+                                        || (cloth == Cloth::Folded) == storedFolded;
+        const QVector<QPointF> outline =
+            Outline(element.attribute(storedIsTheOneLaid ? QStringLiteral("outline")
+                                                         : QStringLiteral("outlineAlt")));
+        if (outline.isEmpty())
+        {
+            return QPointF();
+        }
+        double x = outline.first().x();
+        double y = outline.first().y();
+        for (const QPointF &point : outline)
+        {
+            x = std::min(x, point.x());
+            y = std::min(y, point.y());
+        }
+        return QPointF(x, y);
+    };
+    const auto laidBottom = [cloth](const QDomElement &element) -> qreal
+    {
+        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
+        const bool storedFolded =
+            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
+        const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
+                                        || (cloth == Cloth::Folded) == storedFolded;
+        const QVector<QPointF> outline =
+            Outline(element.attribute(storedIsTheOneLaid ? QStringLiteral("outline")
+                                                         : QStringLiteral("outlineAlt")));
+        if (outline.isEmpty())
+        {
+            return qQNaN();
+        }
+        qreal bottom = outline.first().y();
+        for (const QPointF &point : outline)
+        {
+            bottom = std::max(bottom, point.y());
+        }
+        return bottom;
+    };
+
+    // ⚠️ **Le décor d'une pièce à pli est accroché au PLI, pas au coin de sa boîte.** Une pièce
+    // dépliée s'élargit de chaque côté de son pli : le coin s'en va de 194 px entre la 32 et la 46
+    // quand le pli, lui, s'en va de 529. Ancrer au coin laissait donc le cartouche glisser le long du
+    // bord ; c'est le pli qui est le repère, parce que c'est là que la pièce est coupée.
+    const auto FoldAnchor = [](const QDomElement &element) -> QPointF
+    {
+        const QVector<double> axis = Numbers(element.attribute(QStringLiteral("foldAxis")));
+        if (axis.size() < 4)
+        {
+            return QPointF(qQNaN(), qQNaN());
+        }
+        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
+        const bool storedFolded =
+            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
+        Q_UNUSED(onFold)
+        Q_UNUSED(storedFolded)
+        return QPointF((axis.at(0) + axis.at(2)) / 2.0, 0.0);
+    };
+
     for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
          element = element.nextSiblingElement(QStringLiteral("piece")))
     {
@@ -838,11 +907,20 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         {
             continue;
         }
+        const QString name = element.attribute(QStringLiteral("name"));
         const QVector<double> shift = Numbers(element.attribute(QStringLiteral("alignDelta")));
         if (shift.size() >= 2)
         {
-            referenceAlignDelta.insert(element.attribute(QStringLiteral("name")),
-                                       QPointF(shift.at(0), shift.at(1)));
+            referenceAlignDelta.insert(name, QPointF(shift.at(0), shift.at(1)));
+        }
+        if (!Outline(element.attribute(QStringLiteral("outline"))).isEmpty()
+            || !Outline(element.attribute(QStringLiteral("outlineAlt"))).isEmpty())
+        {
+            const QPointF fold = FoldAnchor(element);
+            if (!qIsNaN(fold.x()))
+            {
+                referenceFold.insert(name, QPointF(fold.x(), laidBottom(element)));
+            }
         }
     }
 
@@ -1109,9 +1187,16 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 //
                 // Sans ce test, les enfants de chaque membre prendraient la place de ceux du groupe
                 // dès qu'Ostara les écrit, et un groupe imprimé entier porterait deux cartouches.
+                //
+                // ⚠️ **Et c'est une règle d'IMPRESSION, pas de plan de coupe.** Un plan de coupe
+                // individualise les membres — chacun est une pièce à poser, à côté de l'autre — donc
+                // le groupe n'y gagne JAMAIS, même quand ses membres sont tous retenus : ce que la
+                // pièce porte, c'est son propre dessin. Le groupe n'est qu'un dessin pour la sortie
+                // qui reproduit le document tel qu'il se lit, membres côte à côte.
+                const bool groupWins = cloth == Cloth::AsDrawn && groupWhole.value(groupId);
                 const QDomElement own =
-                    (!groupId.isEmpty() && groupWhole.value(groupId)) ? QDomElement() : decorSource;
-                if (!ReadDecor(own, &one))
+                    (!groupId.isEmpty() && groupWins) ? QDomElement() : decorSource;
+                if (!ReadDecor(own, &one) && cloth == Cloth::AsDrawn)
                 {
                     one = groupDecor.value(groupId);
                     decorSource = groupDecorSource.value(groupId);
@@ -1123,11 +1208,39 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 }
                 if (!one.content.isEmpty())
                 {
-                    // ⚠️ **Le décor ne prend pas l'écart d'alignement.** Il est écrit à la position
-                    // de dessin (celle que Graded a donnée), et le contour, lui, est ramené sur cette
-                    // position par `alignDelta` : l'écart corrige la PIÈCE, pas le décor. Appliqué au
-                    // décor, il le déplaçait une seconde fois — juste à la taille où l'écart est nul,
-                    // décalé d'un peu plus à chaque autre.
+                    // ⚠️ **Le décor prend l'écart d'alignement, comme la pièce qu'il décore.** Le
+                    // plan pose la pièce à `contour + alignDelta` : le décor écrit à côté du contour
+                    // doit donc subir le même écart, sinon il reste où le contour était avant — 239 px
+                    // à gauche pour « Devant », et vers le haut pour les pièces dont l'écart est
+                    // vertical. Mesuré sur la trace du plan, pièce par pièce.
+                    // ⚠️ **Sur une pièce à pli, le décor est accroché au PLI, et à l'axe seul.**
+                    // C'est l'axe du pli qui est le repère : il ne bouge pas d'une taille à l'autre,
+                    // tandis que le coin de la pièce s'en va de 194 px entre la 32 et la 46. Ancrer au
+                    // coin faisait glisser le cartouche le long du bord. Le bas de la pièce complète
+                    // l'assise en y, pour la même raison.
+                    // ⚠️ **Les autres pièces n'ont pas de meilleure assise** : le payload n'écrit
+                    // qu'UN décor, dans le repère de la référence, et les tailles ne se superposent
+                    // pas. Il leur reste l'écart d'alignement, donc un résidu qui suit la gradation —
+                    // mesuré jusqu'à 227 px en x et 42 px en y selon la pièce. Le corriger demande un
+                    // décor **par taille**, écrit par Ostara (§13) : aucun ancrage ne peut le deviner
+                    // ici.
+                    QPointF decorShiftHere = alignDelta + decorShift;
+                    const QPointF foldNow = FoldAnchor(element);
+                    if (referenceFold.contains(name) && !qIsNaN(foldNow.x()))
+                    {
+                        const QPointF ref = referenceFold.value(name);
+                        decorShiftHere.setX(decorShift.x() + foldNow.x() + alignDelta.x() - ref.x());
+                        decorShiftHere.setY(decorShift.y() + laidBottom(element) + alignDelta.y()
+                                            - ref.y());
+                    }
+                    if (!decorShiftHere.isNull())
+                    {
+                        one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
+                                          .arg(QString::number(decorShiftHere.x(), 'f', 3),
+                                               QString::number(decorShiftHere.y(), 'f', 3))
+                                      + one.content + QStringLiteral("</g>");
+                        one.box.translate(decorShiftHere);
+                    }
 
                     // Both spellings of the name, for the reason the piece lookup below accepts both:
                     // the drawing writes `Ourlet_dos`, the payload names « Ourlet dos », and a plan
