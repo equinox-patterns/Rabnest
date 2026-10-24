@@ -751,15 +751,17 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         return false;
     }
 
-    // **Version 3 is the one that carries the drawn contour and the alignment.** Version 2 holds
-    // the same pieces with their decor, but a reader can only lay their sizes on top of each other
-    // by guessing an offset it never received — which gives a footprint larger than the piece, not
-    // a slightly wrong one — and can only draw them without their notches. Version 1 has no decor
-    // at all. Reading the nearest older thing would be worse than refusing it: the plan would lay
-    // ten pieces and not one grain line, silently. A reader that cannot find what it was asked for
-    // says so.
+    // **Version 4 : chaque membre d'un groupe porte ses propres enfants.** Le `<group>` porte en plus
+    // le jeu commun, et c'est la sélection qui décide lequel s'affiche (voir `groupWhole` plus bas).
+    //
+    // La 3 reste lisible — elle dit la même chose SANS les enfants des membres, donc chaque membre
+    // retombe sur le décor du groupe, exactement le comportement d'avant. La 2 n'a ni le contour
+    // dessiné ni l'offset d'alignement : un lecteur ne pourrait superposer ses tailles qu'en devinant
+    // un décalage qu'il n'a jamais reçu, et dessinerait des pièces sans crans. La 1 n'a aucun décor.
+    // Lire la version la plus proche serait pire que refuser : le plan poserait dix pièces et pas une
+    // ligne de droit-fil, sans le dire. **Un lecteur qui ne trouve pas ce qu'on lui demande le dit.**
     const QString payloadVersion = pieces.attribute(QStringLiteral("version"));
-    if (payloadVersion != QLatin1String("3"))
+    if (payloadVersion != QLatin1String("3") && payloadVersion != QLatin1String("4"))
     {
         if (error != nullptr)
         {
@@ -879,6 +881,30 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
 
         groupDecor.insert(id, one);
         groupDecorSource.insert(id, element);
+    }
+
+    // ── Le groupe est-il dessiné ENTIER ? ───────────────────────────────────────────────────────
+    //
+    // Décision de Sophie (24-10-2026) : le groupe entier l'emporte — un cartouche, une droit-fil pour
+    // deux pièces — mais un membre affiché SEUL porte ses propres enfants. « Entier » se mesure ici,
+    // une fois : tous les membres que le payload nomme pour ce groupe sont-ils gardés ?
+    //
+    // ⚠️ **Et c'est le seul endroit qui puisse le dire.** Le lecteur ne reçoit qu'une liste de pièces
+    // cochées ; le groupe n'existe que par l'attribut `group` de ses membres, et sa composition est
+    // dans le payload, pas dans la sélection.
+    QHash<QString, bool> groupWhole;
+    for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
+         !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
+    {
+        const QString groupId = element.attribute(QStringLiteral("group"));
+        if (groupId.isEmpty())
+        {
+            continue;
+        }
+
+        const QString name = element.attribute(QStringLiteral("name"));
+        const bool memberKept = kept.contains(name) || kept.contains(Slug(name));
+        groupWhole[groupId] = groupWhole.value(groupId, true) && memberKept;
     }
 
     for (const QString &sizeId : sizeIds)
@@ -1039,8 +1065,18 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             QPointF decorShift;
             {
                 PieceDecor one;
-                const QDomElement own = decorSource;
                 const QString groupId = element.attribute(QStringLiteral("group"));
+                // ── Qui gagne, du membre ou du groupe ───────────────────────────────────────────
+                //
+                // **Le groupe entier l'emporte** (décision de Sophie, 24-10-2026) : le groupe est un
+                // dessin, il porte un cartouche et une droit-fil pour ses membres, et c'est ce que
+                // l'impression montre. Un membre qui en porte un à lui ne le fait valoir que lorsqu'il
+                // est affiché SEUL — c'est-à-dire quand son groupe n'est pas gardé en entier.
+                //
+                // Sans ce test, les enfants de chaque membre prendraient la place de ceux du groupe
+                // dès qu'Ostara les écrit, et un groupe imprimé entier porterait deux cartouches.
+                const QDomElement own =
+                    (!groupId.isEmpty() && groupWhole.value(groupId)) ? QDomElement() : decorSource;
                 if (!ReadDecor(own, &one))
                 {
                     one = groupDecor.value(groupId);
