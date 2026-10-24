@@ -659,10 +659,22 @@ auto ReadMirroredDecor(const QDomElement &decorElement, const QPointF &alignDelt
     QXmlStreamWriter writer(&content);
     GrowingBox box;
 
-    // ⚠️ A trace is a path with the marker — but it may arrive wrapped in a translation of its own,
-    // which is why this asks the subtree and not the element. A wrapped trace is REFLECTED as a whole,
-    // wrapper included, so the mark and the placement it was written with move together.
-    const auto isTrace = [](const QDomElement &element) { return HasTrace(element); };
+    // ⚠️ A trace is a path with the marker — and it is TWO shapes, not one. Most arrive wrapped in a
+    // translation of their own, so the subtree has to be asked; but the plain one is the element
+    // ITSELF, with no child at all, and asking only the descendants missed it. Missed, it took the
+    // re-lay path instead of the reflection: the mark was moved to the other side of the piece and its
+    // arrows stayed pointing the way they pointed before — a fold mark sitting right and saying the
+    // opposite. The element is asked first, then what hangs under it.
+    const auto isTrace = [](const QDomElement &element)
+    {
+        if (element.tagName() == QLatin1String("path")
+            && (element.hasAttribute(QStringLiteral("ostara:grain"))
+                || element.hasAttribute(QStringLiteral("ostara:fold"))))
+        {
+            return true;
+        }
+        return HasTrace(element);
+    };
 
     for (const QDomElement &child : leaves)
     {
@@ -809,6 +821,28 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         {
             referenceLabel = pieceSize;
             break;
+        }
+    }
+
+    // ── L'écart d'alignement de la TAILLE DE RÉFÉRENCE, par pièce ───────────────────────────────
+    //
+    // ⚠️ **Le dessin du jumeau est celui de la référence, retourné une fois pour toutes** — comme le
+    // bloc de la pièce, qui est le même octet pour toutes les tailles. L'écart qui le pose ne peut
+    // donc pas être celui de la taille demandée : à la plus grande taille, où cet écart vaut zéro, le
+    // contenu partait vers la droite de tout ce que la référence, elle, portait.
+    QHash<QString, QPointF> referenceAlignDelta;
+    for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
+         element = element.nextSiblingElement(QStringLiteral("piece")))
+    {
+        if (element.attribute(QStringLiteral("size")) != referenceLabel)
+        {
+            continue;
+        }
+        const QVector<double> shift = Numbers(element.attribute(QStringLiteral("alignDelta")));
+        if (shift.size() >= 2)
+        {
+            referenceAlignDelta.insert(element.attribute(QStringLiteral("name")),
+                                       QPointF(shift.at(0), shift.at(1)));
         }
     }
 
@@ -1089,21 +1123,11 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 }
                 if (!one.content.isEmpty())
                 {
-                    // The decor is written in the contour's frame, so it takes the alignment too —
-                    // by a TRANSLATION wrapped around it, never by re-writing its numbers: its ink
-                    // comes from Ostara's own serializer, and a second reader that moved every
-                    // coordinate would be a second serializer allowed to disagree with the first.
-                    // The box moves with it, and the two moves do not add up twice: the box is the
-                    // SVG's viewBox AND the offset the item is placed at, so shifting one alone
-                    // would cancel itself out.
-                    if (!alignDelta.isNull())
-                    {
-                        one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
-                                          .arg(QString::number(alignDelta.x(), 'f', 3),
-                                               QString::number(alignDelta.y(), 'f', 3))
-                                      + one.content + QStringLiteral("</g>");
-                        one.box.translate(alignDelta);
-                    }
+                    // ⚠️ **Le décor ne prend pas l'écart d'alignement.** Il est écrit à la position
+                    // de dessin (celle que Graded a donnée), et le contour, lui, est ramené sur cette
+                    // position par `alignDelta` : l'écart corrige la PIÈCE, pas le décor. Appliqué au
+                    // décor, il le déplaçait une seconde fois — juste à la taille où l'écart est nul,
+                    // décalé d'un peu plus à chaque autre.
 
                     // Both spellings of the name, for the reason the piece lookup below accepts both:
                     // the drawing writes `Ourlet_dos`, the payload names « Ourlet dos », and a plan
@@ -1209,7 +1233,12 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     // twin's key, because a pose and its twin are two drawings of one piece and the
                     // plan looks a block up by the key it lays.
                     PieceDecor mirroredOne;
-                    if (ReadMirroredDecor(decorSource, alignDelta + decorShift, axisX, &mirroredOne))
+                    // ⚠️ **L'écart du jumeau est celui de la RÉFÉRENCE, pas celui de la taille.**
+                    // Son dessin est le décor de la référence retourné une fois pour toutes ; le
+                    // poser avec l'écart de la taille demandée le déplaçait de la différence — nulle
+                    // à la référence, et de plus en plus grande au-dessus, vers la droite.
+                    const QPointF twinShift = referenceAlignDelta.value(name, alignDelta) + decorShift;
+                    if (ReadMirroredDecor(decorSource, twinShift, axisX, &mirroredOne))
                     {
                         size.decor.insert(twin.key, mirroredOne);
                     }
