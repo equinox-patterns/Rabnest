@@ -61,6 +61,14 @@
 		<string>zh</string>
 	</array>
 
+	<!--
+	  La catégorie de l'application : la métadonnée qu'Apple attend de tout paquet, que Launchpad et
+	  le magasin lisent. `graphics-design` est la même famille que le `Graphics;2DGraphics` du
+	  rabnest.desktop sous Linux.
+	-->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
+
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 

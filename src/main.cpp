@@ -26,6 +26,7 @@
  *************************************************************************/
 
 #include <QApplication>
+#include <QIcon>
 
 #include "app/rabnestlanguage.h"
 #include "app/rabnesttheme.h"
@@ -57,6 +58,10 @@ int main(int argc, char *argv[])
     // Before any widget exists: the look is in place when the first one is built, so nothing is ever
     // drawn with a default it will not keep.
     RabnestTheme::Apply();
+
+    // The window and task bar icon. macOS ignores it — it reads the bundle's .icns — but Windows and
+    // Linux take it here, and without it a binary launched by hand has the generic system icon.
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/app/rabnest.svg")));
 
     RabnestWindow window;
     window.show();

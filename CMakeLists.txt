@@ -131,6 +131,9 @@ set_target_properties(Rabnest PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION "0.3.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3"
     MACOSX_BUNDLE TRUE
+    # L'icône du bundle : le .icns est copié dans Contents/Resources juste après la construction,
+    # et la clé du plist la nomme.
+    MACOSX_BUNDLE_ICON_FILE "rabnest.icns"
     # ⚠️ **Sans ce plist, l'interface est en anglais sur une machine française.** macOS donne sa
     # langue au processus d'après les langues que le bundle déclare parler ; un bundle qui n'en
     # déclare aucune est réputé ne parler que l'anglais, et `QLocale::system()` répond `en_US` quoi
@@ -140,6 +143,30 @@ set_target_properties(Rabnest PROPERTIES
 
 # src/ local : NestingDialog.cpp fait #include "ui/NestingDialog.h"
 target_include_directories(Rabnest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# ── Windows ────────────────────────────────────────────────────────────────────────────────────
+# L'icône n'est pas posée à côté de l'exécutable : elle est compilée dedans par le script de
+# ressources, sinon l'explorateur affiche l'icône générique. Et WIN32_EXECUTABLE évite la console
+# noire qui s'ouvre derrière la fenêtre.
+if(WIN32)
+    set_target_properties(Rabnest PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(Rabnest PRIVATE share/icons/app/rabnest.rc)
+    set_source_files_properties(share/icons/app/rabnest.rc PROPERTIES
+        COMPILE_FLAGS "-I\"${CMAKE_CURRENT_SOURCE_DIR}/share/icons/app\"")
+endif()
+
+# ── Linux ──────────────────────────────────────────────────────────────────────────────────────
+# Rien n'est compilé dedans : l'icône s'installe dans l'arbre hicolor et le fichier .desktop la
+# nomme. Le gestionnaire de fenêtres la trouve par ce nom, jamais par un chemin.
+if(UNIX AND NOT APPLE)
+    install(TARGETS Rabnest RUNTIME DESTINATION bin)
+    install(FILES share/rabnest.desktop DESTINATION share/applications)
+    foreach(icon_size 16 24 32 48 64 128 256 512)
+        install(FILES share/icons/hicolor/${icon_size}x${icon_size}/apps/rabnest.png
+            DESTINATION share/icons/hicolor/${icon_size}x${icon_size}/apps)
+    endforeach()
+    install(FILES share/icons/app/rabnest.svg DESTINATION share/icons/hicolor/scalable/apps)
+endif()
 
 
 # Trame apporte ${Trame}/src + Qt6::Core/Xml + Clipper2 en PUBLIC, et
@@ -151,9 +178,19 @@ target_include_directories(Rabnest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # texte séparés suffisent. Le dialogue les lit dans le binaire, ces fichiers sont là pour la lettre
 # de la licence — et pour qui veut les lire sans ouvrir l'application.
 if(APPLE)
+    # ⚠️ **Une commande POST_BUILD ne tourne qu'au moment où la cible est reliée.** Sans cette
+    # dépendance, remplacer le .icns sans toucher au code laissait l'ancienne icône dans le paquet,
+    # et le Finder montrait celle d'avant. Le fichier entre donc dans les sources de la cible, en
+    # HEADER_FILE_ONLY : il ne se compile pas, mais son changement déclenche la liaison, donc la copie.
+    set_source_files_properties(share/icons/app/rabnest.icns PROPERTIES HEADER_FILE_ONLY TRUE)
+    target_sources(Rabnest PRIVATE share/icons/app/rabnest.icns)
+
     add_custom_command(TARGET Rabnest POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources/licenses"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/icons/app/rabnest.icns"
+            "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/GPL-3.0.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/phosphor-MIT.txt"

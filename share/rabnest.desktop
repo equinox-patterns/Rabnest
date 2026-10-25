@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Rabnest
+GenericName=Nesting for sewing patterns
+Comment=Lay out the pieces of an Ostara pattern and produce its cutting plans
+Exec=Rabnest
+Icon=rabnest
+Terminal=false
+Categories=Graphics;2DGraphics;
+Keywords=sewing;pattern;nesting;cutting;plan;
