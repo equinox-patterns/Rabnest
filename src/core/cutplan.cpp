@@ -206,8 +206,8 @@ auto FootprintsOf(const QVector<CutPiece> &poses) -> Footprint::Result
 /// One strip of fabric, one column of pieces — the plan every flat run makes, and the one-edge
 /// folded run too.
 auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double>> &anglesByKey,
-         const QHash<QString, bool> &foldRightByKey, bool foldedFabric, double binWidthPx,
-         double marginPx, double gapPx) -> Layout
+         const QHash<QString, bool> &foldRightByKey, bool foldedFabric, bool foldOnTheLeft,
+         double binWidthPx, double marginPx, double gapPx) -> Layout
 {
     Layout layout;
 
@@ -221,7 +221,7 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
     laid.reserve(poses.size());
     for (const CutPiece &pose : poses)
     {
-        if (foldedFabric && !Suits(pose, true, foldRightByKey))
+        if (foldedFabric && !Suits(pose, foldOnTheLeft, foldRightByKey))
         {
             continue;
         }
@@ -257,10 +257,12 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
         const CutPiece pose = poseByKey.value(key);
         layout.poses.append(pose);
         angles.push_back(anglesByKey.value(key));
-        // The wall belongs to the RECTANGLE, not to the piece: this one folds on its left, so a piece
-        // cut on the fold is glued to the left wall — the one place where the margin is zero and the
-        // cloth actually folds. Ostara's `ConstraintsFor` writes the same thing.
-        anchors.push_back(foldedFabric && pose.onFold ? Anchor::LeftWall : Anchor::Free);
+        // The wall belongs to the RECTANGLE, not to the piece: the side it folds on is where the
+        // margin is zero and the cloth actually folds, so a piece cut on the fold is glued THERE.
+        // Ostara's `ConstraintsFor` writes the same thing.
+        anchors.push_back(foldedFabric && pose.onFold
+                              ? (foldOnTheLeft ? Anchor::LeftWall : Anchor::RightWall)
+                              : Anchor::Free);
     }
 
     for (std::size_t index = 0; index < layout.footprint.polygons.size(); ++index)
@@ -270,8 +272,12 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
 
     // A flat run keeps the same margin on the four edges. A folded one keeps NOTHING on the fold:
     // a piece cut on the fold has its fold line ON the fold, and a margin there would push it off.
+    // ⚠️ **Le côté du pli est TOUT dans ces marges.** Le moteur le lit là et nulle part ailleurs
+    // (`foldsOnLeft = marginL < marginR`), et il y colle les pièces ancrées : zéro d'un côté, l'écart
+    // de l'autre. C'est ce qui permet de plier le tissu d'un bord ou de l'autre sans rien changer
+    // d'autre, et c'est ce qui fait qu'un plan peut n'avoir AUCUN miroir.
     const Bin bin = foldedFabric
-                        ? Bin(binWidthPx, CuttingRules::SeatMargins(true, marginPx),
+                        ? Bin(binWidthPx, CuttingRules::SeatMargins(foldOnTheLeft, marginPx),
                               std::vector<Bin::Zone>{})
                         : Bin(binWidthPx, marginPx);
 
@@ -311,12 +317,72 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
     {
         FoldZone zone;
         zone.rect = QRectF(0.0, 0.0, binWidthPx, layout.usedHeightPx);
-        zone.foldOnTheLeft = true;
+        zone.foldOnTheLeft = foldOnTheLeft;
         layout.zones.append(zone);
     }
 
     layout.ok = true;
     return layout;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+/// Combien de pièces ce plan pose MIROIRÉES — le jumeau d'une pièce au pli, jamais la pièce elle-même.
+///
+/// **Ce que la décision de Sophie mesure.** Une pièce coupée au pli donne le même vêtement déplié
+/// qu'on taille sa moitié naturelle ou son miroir : le choix n'a aucune conséquence sur la pièce
+/// coupée, seulement sur le DESSIN qu'on lit sur le tissu. Il n'y a donc aucune raison d'en miroiter
+/// une de plus que nécessaire — et le nombre est le seul juge.
+/// Combien de poses MIRÓIRÉES dans une affectation donnée — le jumeau d'une pièce au pli.
+auto MirroredIn(const QVector<CutPiece> &poses, const std::vector<int> &assignment) -> int
+{
+    int mirrored = 0;
+    for (std::size_t index = 0; index < poses.size() && index < assignment.size(); ++index)
+    {
+        if (BaseKey(poses.at(static_cast<int>(index)).key) != poses.at(static_cast<int>(index)).key)
+        {
+            ++mirrored;
+        }
+    }
+    return mirrored;
+}
+
+auto MirrorCount(const Layout &layout) -> int
+{
+    int mirrored = 0;
+    for (const CutPiece &pose : layout.poses)
+    {
+        if (BaseKey(pose.key) != pose.key)
+        {
+            ++mirrored;
+        }
+    }
+    return mirrored;
+}
+
+/// Le plan à préférer entre deux candidats de même nature.
+///
+/// **La longueur d'abord, les miroirs ensuite** (décision de Sophie, 25-10-2026) : un plan qui
+/// miroite n'est gardé que s'il fait gagner de la longueur ; à longueur égale, celui qui en miroite
+/// le moins l'emporte. Un candidat invalide ne concourt pas.
+auto Prefer(const Layout &candidate, const Layout &current) -> bool
+{
+    if (!candidate.ok)
+    {
+        return false;
+    }
+    if (!current.ok)
+    {
+        return true;
+    }
+    if (candidate.usedHeightPx < current.usedHeightPx - 1e-6)
+    {
+        return true;
+    }
+    if (candidate.usedHeightPx > current.usedHeightPx + 1e-6)
+    {
+        return false;
+    }
+    return MirrorCount(candidate) < MirrorCount(current);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -334,7 +400,7 @@ auto Lay(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double
 /// band's. A form only ever enters a rectangle whose fold side is its own.
 auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<double>> &anglesByKey,
               const QHash<QString, bool> &foldRightByKey, double binWidthPx, double marginPx,
-              double gapPx) -> Layout
+              double gapPx, bool swapped) -> Layout
 {
     Layout layout;
 
@@ -397,8 +463,12 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
         return widthOf(*formFor(forms.value(a), true)) > widthOf(*formFor(forms.value(b), true));
     });
 
-    const QString leftBase = paired.at(0);
-    const QString rightBase = paired.at(1);
+    // ⚠️ **La bande de gauche a son pli à gauche, celle de droite à droite** : mettre une pose d'un
+    // côté ou de l'autre décide donc si elle est posée NATURELLE ou miroitée, à largeur et longueur
+    // identiques. Le code mettait toujours la plus large à gauche et n'essayait jamais l'inverse ;
+    // `swapped` est cet autre essai, et `Prefer` départage (décision de Sophie, 25-10-2026).
+    const QString leftBase = swapped ? paired.at(1) : paired.at(0);
+    const QString rightBase = swapped ? paired.at(0) : paired.at(1);
 
     const double leftPieceWidth = widthOf(*formFor(forms.value(leftBase), true));
     const double rightPieceWidth = widthOf(*formFor(forms.value(rightBase), false));
@@ -672,7 +742,9 @@ auto TwoEdges(const QVector<CutPiece> &poses, const QHash<QString, std::vector<d
                     continue;
                 }
 
-                if (height < best - 1e-9)
+                if (height < best - 1e-9
+                    || (std::abs(height - best) <= 1e-9
+                        && MirroredIn(layout.poses, trial) < MirroredIn(layout.poses, assignment)))
                 {
                     assignment = std::move(trial);
                     best = height;
@@ -833,15 +905,31 @@ auto CutPlan::Generate(const CutSize &size, const CutPlanRequest &request,
         return plan;
     }
 
-    const Layout one =
-        Lay(size.poses, anglesByKey, foldRightByKey, folded, plan.binWidthPx, marginPx, gapPx);
-    if (!one.ok)
+    // ── Les deux pliages d'un bord, et le moins de miroirs ──────────────────────────────────────
+    //
+    // ⚠️ **Le côté du pli est un choix, et il est gratuit.** Plier le tissu d'un bord ou de l'autre
+    // donne le même patron déplié et la même longueur, mais pas les mêmes moitiés : d'un côté ce
+    // sont les formes naturelles qui entrent, de l'autre leurs miroirs. Le code ne l'essayait pas —
+    // il pliait toujours à gauche —, donc il miroitait toutes les pièces dont le pli tombe à droite,
+    // sans que cela fasse gagner un millimètre. Décision de Sophie (25-10-2026) : le miroir ne vaut
+    // que s'il fait gagner de la longueur, sinon on plie de l'autre côté.
+    Layout best = Lay(size.poses, anglesByKey, foldRightByKey, folded, /*foldOnTheLeft=*/true,
+                      plan.binWidthPx, marginPx, gapPx);
+    if (folded)
     {
-        plan.error = one.error;
-        return plan;
+        const Layout flipped = Lay(size.poses, anglesByKey, foldRightByKey, folded,
+                                   /*foldOnTheLeft=*/false, plan.binWidthPx, marginPx, gapPx);
+        if (Prefer(flipped, best))
+        {
+            best = flipped;
+        }
     }
 
-    Layout best = one;
+    if (!best.ok)
+    {
+        plan.error = best.error;
+        return plan;
+    }
 
     // ── Le candidat à deux bords ────────────────────────────────────────────────────────────────
     //
@@ -850,8 +938,14 @@ auto CutPlan::Generate(const CutSize &size, const CutPlanRequest &request,
     // that matches its own edge, and a form left out of a plan is not drawn and not cut.
     if (folded)
     {
-        const Layout two = TwoEdges(size.poses, anglesByKey, foldRightByKey, plan.binWidthPx,
-                                    marginPx, gapPx);
+        Layout two = TwoEdges(size.poses, anglesByKey, foldRightByKey, plan.binWidthPx,
+                              marginPx, gapPx, /*swapped=*/false);
+        const Layout other = TwoEdges(size.poses, anglesByKey, foldRightByKey, plan.binWidthPx,
+                                      marginPx, gapPx, /*swapped=*/true);
+        if (Prefer(other, two))
+        {
+            two = other;
+        }
 
         // Strictly shorter: on a tie the single edge stays, which is the plan that has always been.
         if (two.ok && two.usedHeightPx < best.usedHeightPx - 1e-6)
