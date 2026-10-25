@@ -1247,21 +1247,11 @@ void WorkspacePage::RedrawPrint(bool refit)
                 shape.addPolygon(placed);
             }
 
-            if (shape.isEmpty())
-            {
-                continue;
-            }
-
-            // The same rule when one piece is read alone: its seam allowance is a ring inside its
-            // contour, and an even-odd reading would make the inside of the piece a hole.
-            shape.setFillRule(Qt::WindingFill);
-
-            PrintInk ink;
-            ink.shape = shape;
-            ink.colour = layer.colour;
-            ink.dashes = layer.dashes;
-            inks[piece.placementIndex].append(ink);
-
+            // ⚠️ **Les enfants d'abord, l'encre ensuite.** La taille de référence peut être dans le
+            // run SANS être dessinée — elle y est pour asseoir le décor sur les autres tailles. La
+            // sortir avant ses enfants parce qu'elle n'a pas d'encre ôterait le cartouche, le
+            // droit-fil et la miniature de tout le plan.
+            //
             // The piece's own drawing, laid by the same frame as its outline — the same rule the
             // cutting plan's canvas applies, and the same transform.
             if (reference && !piece.decor.content.isEmpty())
@@ -1283,6 +1273,21 @@ void WorkspacePage::RedrawPrint(bool refit)
                     m_printFollowers[piece.placementIndex].append(item);
                 }
             }
+
+            if (shape.isEmpty())
+            {
+                continue;
+            }
+
+            // The same rule when one piece is read alone: its seam allowance is a ring inside its
+            // contour, and an even-odd reading would make the inside of the piece a hole.
+            shape.setFillRule(Qt::WindingFill);
+
+            PrintInk ink;
+            ink.shape = shape;
+            ink.colour = layer.colour;
+            ink.dashes = layer.dashes;
+            inks[piece.placementIndex].append(ink);
         }
     }
 

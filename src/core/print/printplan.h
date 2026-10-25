@@ -92,10 +92,19 @@ struct PrintLayer
     QString sizeId;
     QVector<PrintPiece> pieces;
 
-    /// The size whose decor is drawn — the smallest of the range, which is the first size the
-    /// payload writes. Every size draws its own ink; only this one carries a cartouche, an
-    /// annotation or a grain line, exactly as Ostara's canvas does.
+    /// The size whose decor is drawn — **the one the payload NAMES**, never the first of the run.
+    /// Every size draws its own ink; only this one carries a cartouche, an annotation or a grain
+    /// line, exactly as Ostara's canvas does.
     bool reference{false};
+
+    /// A size the run NEEDED and the user did not ask for: the payload's reference size.
+    ///
+    /// **Its pieces are not drawn; its drawing is.** The children are written in the frame of that
+    /// size, so a run that leaves it out has no anchor to seat them on — and anchoring them on the
+    /// smallest size it DID get shifts a fold piece's cartouche by exactly the growth between the
+    /// two, which is what « tout est décalé depuis le pli » was. Keeping it costs nothing: the
+    /// smallest size of a graded pattern lies inside every other one, so it changes no footprint.
+    bool hidden{false};
 
     /// How this size is DRAWN — its line colour and its dash pattern, read from the payload's own
     /// layer for it.

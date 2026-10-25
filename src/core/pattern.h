@@ -223,4 +223,18 @@ public:
                      QString *error, Material material = Material::Fabric);
 };
 
+/// The size the payload names as its REFERENCE — `<pieces reference="Taille 32">` — as a layer id.
+///
+/// **The one size the decor was drawn on.** Ostara writes the children (cartouche, annotations,
+/// grain line, miniature) in the frame of that size and nowhere else; the other sizes carry a copy
+/// the plan may use, but the PLACE is the reference's. A run that does not contain it has no
+/// anchor to seat the drawing on — @see the note in `PrintPlan::Generate`, which always puts it in.
+///
+/// The label is matched against the layers' own labels, the same way @ref Pattern::Load decides
+/// `CutSize::reference`: Ostara names a layer « Taille 32 » and its payload « Taille 32 », but a
+/// translation may have prefixed one of them.
+///
+/// @return an empty string when the file says nothing, which is every payload before version 5.
+auto ReferenceSize(const ImportedDocument &document) -> QString;
+
 #endif  // PATTERN_H

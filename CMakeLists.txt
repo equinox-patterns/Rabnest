@@ -174,8 +174,11 @@ add_executable(rabnest_print
     src/core/print/exportsheets.cpp
     src/core/print/exporttemplate.cpp
     src/core/print/printplan.cpp
+    src/core/print/printpdf.cpp
     src/core/print/printrecipe.cpp
     share/rabnest.qrc
 )
 target_include_directories(rabnest_print PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(rabnest_print PRIVATE Trame Qt6::Widgets Qt6::Svg ZLIB::ZLIB)
+# PrintSupport : `--svg=` écrit par le MÊME écrivain que le PDF, qui peint aussi sur une imprimante.
+target_link_libraries(rabnest_print PRIVATE Trame Qt6::Widgets Qt6::Svg Qt6::PrintSupport
+                                          ZLIB::ZLIB)

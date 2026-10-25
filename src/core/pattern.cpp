@@ -746,6 +746,61 @@ auto ReadMirroredDecor(const QDomElement &decorElement, const QPointF &alignDelt
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+auto ReferenceSize(const ImportedDocument &document) -> QString
+{
+    QDomDocument payload;
+    if (!payload.setContent(document.payload()))
+    {
+        return {};
+    }
+
+    const QDomElement metadata =
+        payload.documentElement().firstChildElement(QStringLiteral("metadata"));
+    const QDomElement pieces = metadata.firstChildElement(QStringLiteral("pieces"));
+    if (pieces.isNull())
+    {
+        return {};
+    }
+
+    // The attribute when the payload carries one (version 5 and after); otherwise the size of the
+    // FIRST `<piece>`, which is what Ostara wrote before it named it — the smallest of the range,
+    // and the only one whose drawing carries the children.
+    QString label = pieces.attribute(QStringLiteral("reference"));
+    if (label.isEmpty())
+    {
+        for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
+             !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
+        {
+            label = element.attribute(QStringLiteral("size"));
+            if (!label.isEmpty())
+            {
+                break;
+            }
+        }
+    }
+    if (label.isEmpty())
+    {
+        return {};
+    }
+
+    // The layer's own id, by the rule `Pattern::Load` uses for the same label: equal, or the label
+    // carried at the end of a longer one.
+    for (const ImportedLayer &layer : document.layers())
+    {
+        if (layer.decor)
+        {
+            continue;
+        }
+        if (layer.label == label || layer.label.endsWith(QLatin1String(" ") + label))
+        {
+            return layer.id;
+        }
+    }
+
+    return {};
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                    const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
@@ -877,10 +932,6 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // donc pas être celui de la taille demandée : à la plus grande taille, où cet écart vaut zéro, le
     // contenu partait vers la droite de tout ce que la référence, elle, portait.
     QHash<QString, QPointF> referenceAlignDelta;
-    // Le coin de la pièce de RÉFÉRENCE, dans le repère du payload (avant `alignDelta`). C'est ce que
-    // le décor — écrit une fois, dans ce repère-là — doit rejoindre : le dessin d'une taille est le
-    // même octet pour les huit, donc il ne peut être posé que par rapport au coin de la référence.
-    QHash<QString, QPointF> referenceCorner;
     for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
          element = element.nextSiblingElement(QStringLiteral("piece")))
     {
@@ -888,23 +939,11 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         {
             continue;
         }
-        const QString name = element.attribute(QStringLiteral("name"));
         const QVector<double> shift = Numbers(element.attribute(QStringLiteral("alignDelta")));
         if (shift.size() >= 2)
         {
-            referenceAlignDelta.insert(name, QPointF(shift.at(0), shift.at(1)));
-        }
-        const QVector<double> outline = Numbers(element.attribute(QStringLiteral("outline")));
-        if (outline.size() >= 2)
-        {
-            double x0 = outline.at(0);
-            double y0 = outline.at(1);
-            for (qsizetype index = 2; index + 1 < outline.size(); index += 2)
-            {
-                x0 = std::min(x0, outline.at(index));
-                y0 = std::min(y0, outline.at(index + 1));
-            }
-            referenceCorner.insert(name, QPointF(x0, y0));
+            referenceAlignDelta.insert(element.attribute(QStringLiteral("name")),
+                                       QPointF(shift.at(0), shift.at(1)));
         }
     }
 
@@ -1409,12 +1448,22 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 // Sans ce test, les enfants de chaque membre prendraient la place de ceux du groupe
                 // dès qu'Ostara les écrit, et un groupe imprimé entier porterait deux cartouches.
                 //
-                // ⚠️ **Et c'est une règle d'IMPRESSION, pas de plan de coupe.** Un plan de coupe
+                // ⚠️ **Et une règle d'IMPRESSION, pas de plan de coupe.** Un plan de coupe
                 // individualise les membres — chacun est une pièce à poser, à côté de l'autre — donc
                 // le groupe n'y gagne JAMAIS, même quand ses membres sont tous retenus : ce que la
                 // pièce porte, c'est son propre dessin. Le groupe n'est qu'un dessin pour la sortie
                 // qui reproduit le document tel qu'il se lit, membres côte à côte.
-                const bool groupWins = cloth == Cloth::AsDrawn && groupWhole.value(groupId);
+                //
+                // ⚠️ **Et depuis la version 5, le groupe n'a plus de bloc à lui.** Ostara écrit un
+                // `<decor>` PAR PIÈCE et PAR TAILLE : chaque membre porte sa part du dessin, dans le
+                // repère de son `outline`. Le bloc `<group><decor>` est alors un vestige de la 4, et le
+                // préférer au membre se paie deux fois — mesuré sur `32-46-160-A0Roll.pdf` :
+                // `Test` et `Dos x1 pli` recevaient le MÊME bloc (17 772 o), `Manche` et `Manche
+                // poignet` le même (165 013 o), posé de 2 900 px à côté de ses pièces sur le print.
+                // Le membre l'emporte donc dès que le payload écrit un décor par pièce.
+                const bool decorOnThePiece = decorPerSize || decorShared;
+                const bool groupWins = cloth == Cloth::AsDrawn && !decorOnThePiece
+                                       && groupWhole.value(groupId);
                 const QDomElement own =
                     (!groupId.isEmpty() && groupWins) ? QDomElement() : decorSource;
                 if (!ReadDecor(own, &one) && cloth == Cloth::AsDrawn)
@@ -1485,9 +1534,19 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                         }
                         currentCorner = QPointF(x0, y0);
                     }
+                    //
+                    // ⚠️ **Et depuis le 25-10-2026, c'est l'écart de la RÉFÉRENCE, pas celui de la
+                    // pièce** (décision de Sophie : « les enfants se positionnent par rapport à la
+                    // taille de référence », la 32). Le bloc est écrit une fois, à la place de la 32,
+                    // et il ne bouge pas d'une taille à l'autre — c'est la PIÈCE qui grandit autour
+                    // de lui, depuis le pli. L'ancrer au coin de chaque taille lui faisait suivre
+                    // cette croissance : mesuré sur « Devant x1 pli », 174,6 px d'écart à la 40 et
+                    // 335,2 px à la 46, exactement la croissance du coin (1246,8 → 1072,2 → 911,6).
+                    // C'est ce qui décalait le plan de coupe, et le print le montrait déjà juste
+                    // parce qu'il n'a jamais qu'une seule assise : celle de la référence.
                     QPointF decorShiftHere = decorShift;
                     decorShiftHere += decorShared
-                                          ? currentCorner - referenceCorner.value(name, currentCorner)
+                                          ? referenceAlignDelta.value(name, currentCorner)
                                           : alignDelta;
                     // Retenue pour le jumeau : le sien est ce MÊME dessin, retourné. Lui donner une
                     // autre assise le décollerait de la pièce qu'il double.
@@ -1667,38 +1726,16 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     }
                     if (haveTwin)
                     {
-                        // ⚠️ **Le miroir est pris autour de l'axe du pli, et cet axe NE BOUGE PAS.**
-                        // La pièce, elle, grandit : son bord passe de 1246,8 en 32 à 911,5 en 46. Le
-                        // décor du jumeau restait donc accroché à un axe fixe pendant que la pièce
-                        // s'en allait — nul en 32, croissant ensuite, d'où « juste à la référence ».
+                        // ⚠️ **Rien à ajouter après le miroir.** Il est pris autour du centre de la
+                        // pièce, qui est aussi le centre du jumeau : le bloc se retrouve donc du côté
+                        // opposé, à la même distance du bord que l'original — ce qui est exactement
+                        // le dessin du jumeau.
                         //
-                        // On lui rend le déplacement de SA pièce depuis la taille de référence : le
-                        // même delta pour la boîte et pour le contenu, pour qu'ils restent un dessin.
-                        if (decorShared && !twin.outline.isEmpty()
-                            && referenceCorner.contains(name))
-                        {
-                            double x0 = twin.outline.first().x();
-                            double y0 = twin.outline.first().y();
-                            for (const QPointF &point : twin.outline)
-                            {
-                                x0 = std::min(x0, point.x());
-                                y0 = std::min(y0, point.y());
-                            }
-                            const QPointF refPoseCorner = referenceCorner.value(name)
-                                                          + referenceAlignDelta.value(name, QPointF());
-                            // Seulement en x : le miroir ne touche que l’axe horizontal, et le
-                            // dessin de la pose porte déjà le déplacement vertical de la taille.
-                            const QPointF delta = QPointF(x0 - refPoseCorner.x(), 0.0);
-                            if (!delta.isNull())
-                            {
-                                mirroredOne.content =
-                                    QStringLiteral("<g transform=\"translate(%1,%2)\">")
-                                        .arg(QString::number(delta.x(), 'f', 3),
-                                             QString::number(delta.y(), 'f', 3))
-                                    + mirroredOne.content + QStringLiteral("</g>");
-                                mirroredOne.box.translate(delta);
-                            }
-                        }
+                        // Le déplacement que l'on ajoutait ici (le coin du jumeau moins le coin de la
+                        // référence) était la croissance de la taille, appliquée une SECONDE fois :
+                        // le miroir la porte déjà, par l'axe qu'il prend. Mesuré sur
+                        // « Devant x1 pli-m » : 37,8 px de trop à la 34 — une taille de croissance,
+                        // et le dessin sortait de sa pièce du côté du pli.
                         size.decor.insert(twin.key, mirroredOne);
                     }
 

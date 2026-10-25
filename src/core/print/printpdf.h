@@ -116,6 +116,17 @@ auto AllPages(const PrintPlan &plan, const QRectF &coverPaper) -> QVector<QRectF
 /// @param error why the file could not be written, when it could not — one sentence for the user.
 auto Write(const Job &job, const QString &path, QString *error) -> bool;
 
+/// Writes the plan's own document to @p path, as SVG, without the payload and without the paper.
+///
+/// **The bench's own door onto the print.** The PDF is made from the plan's document; writing that
+/// document out as it stands is how the drawing can be *measured* — a `<g>` per piece, its
+/// transform, its paths — instead of being looked at. What the file holds is what the PDF's first
+/// document holds, minus the payload: the payload is embedded so the file can be reopened, and a
+/// bench that reads geometry has no use for it.
+///
+/// @param error why the file could not be written, when it could not.
+auto WriteSvg(const Job &job, const QString &path, QString *error) -> bool;
+
 /// Prints @p job: one printer page per sheet, at 100 %, in the file's own drawing.
 ///
 /// **What prints is what the file holds.** The pages are painted from the very documents the PDF is

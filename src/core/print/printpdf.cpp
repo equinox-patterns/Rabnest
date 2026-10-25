@@ -377,6 +377,14 @@ auto WritePlan(const PrintPdf::Job &job, const QString &path, bool withPayload, 
     // readable. Writing them the other way would hide the smallest size under the largest.
     for (auto layer = plan.layers.crbegin(); layer != plan.layers.crend(); ++layer)
     {
+        // **Une taille retenue pour asseoir le décor ne fait pas une couche.** Elle n'a pas d'encre :
+        // écrire son groupe donnerait au lecteur un calque vide, qu'il proposerait d'éteindre alors
+        // qu'il n'y a rien dedans. Ses enfants sont plus bas, dans la couche de mise en page.
+        if (layer->hidden)
+        {
+            continue;
+        }
+
         QDomElement group = root;
         if (layered)
         {
@@ -849,6 +857,18 @@ auto PrintPdf::Write(const Job &job, const QString &path, QString *error) -> boo
     }
     *error = reason;
     return false;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto PrintPdf::WriteSvg(const Job &job, const QString &path, QString *error) -> bool
+{
+    if (!job.plan.ok)
+    {
+        *error = job.plan.error;
+        return false;
+    }
+
+    return WritePlan(job, path, /*withPayload=*/false, error);
 }
 
 //---------------------------------------------------------------------------------------------------------------------

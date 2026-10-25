@@ -28,6 +28,7 @@
 #include "core/print/exportcoverpage.h"
 #include "core/print/printmetrics.h"
 #include "core/print/printplan.h"
+#include "core/print/printpdf.h"
 #include "core/print/printrecipe.h"
 #include "app/print/exportmarkpainter.h"
 #include "app/print/printpanel.h"
@@ -43,6 +44,8 @@
 #include <QFile>
 #include <QStringList>
 #include <QTextStream>
+
+#include <algorithm>
 
 int main(int argc, char *argv[])
 {
@@ -76,11 +79,21 @@ int main(int argc, char *argv[])
     QString gridSpec;
     QString coverPng;
     QString moveSpec;
+    QString svgPath;
+    QString sizesSpec;
     for (const QString &argument : arguments)
     {
         if (argument.startsWith(QStringLiteral("--decor=")))
         {
             decorPath = argument.mid(8);
+        }
+        else if (argument.startsWith(QStringLiteral("--svg=")))
+        {
+            svgPath = argument.mid(6);
+        }
+        else if (argument.startsWith(QStringLiteral("--sizes=")))
+        {
+            sizesSpec = argument.mid(8);
         }
         else if (argument.startsWith(QStringLiteral("--grid=")))
         {
@@ -250,11 +263,22 @@ int main(int argc, char *argv[])
     const QRectF coverBlock =
         seat == CoverSeat::InSheet ? ExportCoverPage::BlockPx(seat, marginPx) : QRectF();
 
+    // `--sizes=Taille_40,Taille_46` : le run d'un sous-ensemble de tailles, tel qu'un panneau le
+    // demande. C'est le cas qui compte pour l'ancrage du décor — un run qui ne contient pas la taille
+    // de référence n'a rien pour asseoir ses enfants.
+    const QStringList wanted = sizesSpec.isEmpty()
+                                   ? QStringList()
+                                   : sizesSpec.split(QLatin1Char(','), Qt::SkipEmptyParts);
+
     QStringList sizeIds;
     QStringList pieces;
     for (const ImportedLayer &layer : document.layers())
     {
         if (layer.decor)
+        {
+            continue;
+        }
+        if (!wanted.isEmpty() && !wanted.contains(layer.id))
         {
             continue;
         }
@@ -298,6 +322,37 @@ int main(int argc, char *argv[])
         const Placement &placement = plan.placements.at(static_cast<std::size_t>(index));
         out << "  #" << index << " " << plan.footprint.keys.at(static_cast<std::size_t>(index))
             << " at " << placement.x << "," << placement.y << " rot " << placement.rotation << "\n";
+    }
+
+    // `--svg=…` écrit le document du plan tel que le PDF l'assemble : un `<g>` par pièce, sa
+    // transformation, ses tracés, puis le décor. C'est le seul moyen de MESURER l'impression —
+    // sans lui, un décor décalé à l'impression ne peut être ni situé ni chiffré.
+    if (!svgPath.isEmpty())
+    {
+        PrintPdf::Job job;
+        job.payload = document.payload();
+        job.plan = plan;
+        job.decor = recipe.hasDecor ? recipe.decor : ExportTemplate::RabnestDefault();
+        job.framed = model->hasFrame;
+        job.coverSvg = recipe.coverSvg;
+        job.sourcePath = arguments.at(1);
+        job.title = QStringLiteral("print");
+
+        if (seat != CoverSeat::None && !recipe.coverSvg.isEmpty() && plan.grid.valid)
+        {
+            job.coverPaper = ExportCoverPage::PaperPx(seat, marginPx, plan.grid.planRect,
+                                                     plan.grid.cellWidthPx, plan.grid.cellHeightPx);
+            job.coverPage = ExportCoverPage::PagePx(seat, marginPx, plan.grid.planRect,
+                                                   plan.grid.cellWidthPx, plan.grid.cellHeightPx);
+        }
+
+        QString svgError;
+        if (!PrintPdf::WriteSvg(job, svgPath, &svgError))
+        {
+            QTextStream(stderr) << "svg: " << svgError << "\n";
+            return 1;
+        }
+        out << "svg written: " << svgPath << "\n";
     }
 
     if (!decorPath.isEmpty() && plan.grid.valid)
@@ -358,6 +413,67 @@ int main(int argc, char *argv[])
     {
         out << "  layer " << layer.label << " pieces=" << layer.pieces.size()
             << " colour=" << layer.colour.name() << " dashes=" << layer.dashes.size() << "\n";
+    }
+
+    // **Ce que le décor dessine, contre la pièce qu'il décore — dans le repère du CONTENU.**
+    // Le plan applique la même transformation aux deux, donc elle s'annule : ce qui reste est
+    // l'écart véritable entre le dessin et sa pièce, et c'est là qu'un décor mal assis se voit.
+    for (const PrintLayer &layer : plan.layers)
+    {
+        if (!layer.reference)
+        {
+            continue;
+        }
+
+        // Chaque taille DESSINÉE, et son contour : c'est contre eux que l'assise du décor se juge.
+        for (const PrintLayer &other : plan.layers)
+        {
+            if (other.hidden)
+            {
+                continue;
+            }
+            for (const PrintPiece &drawn : other.pieces)
+            {
+                if (drawn.outline.isEmpty())
+                {
+                    continue;
+                }
+                double ox0 = 1e18, oy0 = 1e18, ox1 = -1e18, oy1 = -1e18;
+                for (const QPointF &point : drawn.outline)
+                {
+                    ox0 = std::min(ox0, point.x()); ox1 = std::max(ox1, point.x());
+                    oy0 = std::min(oy0, point.y()); oy1 = std::max(oy1, point.y());
+                }
+                out << "      PIECE " << other.label << " " << drawn.name
+                    << " x[" << ox0 << "," << ox1 << "] y[" << oy0 << "," << oy1 << "]\n";
+            }
+        }
+
+        for (const PrintPiece &piece : layer.pieces)
+        {
+            if (piece.decor.content.isEmpty() || piece.outline.isEmpty())
+            {
+                continue;
+            }
+
+            double x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18;
+            for (const QPointF &point : piece.outline)
+            {
+                x0 = std::min(x0, point.x()); x1 = std::max(x1, point.x());
+                y0 = std::min(y0, point.y()); y1 = std::max(y1, point.y());
+            }
+
+            const QRectF &box = piece.decor.box;
+            const QRectF inside = QRectF(x0, y0, x1 - x0, y1 - y0).intersected(box);
+            const double ratio = inside.isEmpty() ? 0.0 : inside.width() * inside.height()
+                                                          / (box.width() * box.height());
+
+            out << "      decor " << piece.name
+                << " : piece x[" << x0 << "," << x1 << "] y[" << y0 << "," << y1 << "]"
+                << " | dessin x[" << box.left() << "," << box.right()
+                << "] y[" << box.top() << "," << box.bottom() << "]"
+                << " | dedans " << int(ratio * 100.0) << "%\n";
+        }
     }
 
     return plan.sheets.count > 0 ? 0 : 1;

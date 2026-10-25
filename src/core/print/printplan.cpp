@@ -227,9 +227,28 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
     // carries folded is printed folded, one it carries whole is printed whole — the print re-forms
     // nothing, and neither takes a twin nor expands a cut quantity. The half form, the twin and the
     // quantity belong to the cutting plan, which is the only output that produces pieces to cut.
+    // ── La taille de RÉFÉRENCE est toujours du run ───────────────────────────────────────────────
+    //
+    // **Décision de Sophie (25-10-2026).** Les enfants d'une pièce — cartouche, annotations, droit-fil,
+    // miniature — sont écrits dans le repère de la taille que le payload NOMME (`<pieces
+    // reference="Taille 32">`). Un run qui l'exclut n'a donc aucun repère pour les asseoir : ancrés
+    // sur la plus petite taille qu'il a, ils glissent de la croissance entre les deux, et c'est ce qui
+    // se voyait — « tout est décalé depuis le bord (= pli), sauf la taille 32 ».
+    //
+    // On l'ajoute donc, et on ne la DESSINE pas si elle n'était pas demandée (`hidden`) : ses
+    // enfants, eux, restent, parce que ce sont eux qui habillent les autres tailles. Le coût est nul —
+    // la plus petite taille d'un patron gradué tient dans toutes les autres, donc l'empreinte d'une
+    // pièce ne change pas d'un pixel.
+    QStringList loadedIds = sizeIds;
+    const QString referenceId = ReferenceSize(document);
+    if (!referenceId.isEmpty() && !loadedIds.contains(referenceId))
+    {
+        loadedIds.prepend(referenceId);
+    }
+
     QVector<CutSize> sizes;
     QString error;
-    if (!Pattern::Load(document, sizeIds, pieceNames, Cloth::AsDrawn, sizes, &error))
+    if (!Pattern::Load(document, loadedIds, pieceNames, Cloth::AsDrawn, sizes, &error))
     {
         plan.error = error;
         return plan;
@@ -252,14 +271,14 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
 
         PrintLayer layer;
         layer.label = size.label;
-        layer.sizeId = index < sizeIds.size() ? sizeIds.at(index) : QString();
-        // **The children belong to the RUN's first size, which is its smallest.** Ostara draws them
-        // on the first layer of the range, and only there — `const bool isReference = (l == 0);`
-        // (`oexportcanvas.cpp:1812-1814`), grain line included (`:1852-1857`). Naming the payload's
-        // own reference instead meant a run that does not tick the smallest size of the PATTERN
-        // carried no cartouche, no annotation, no miniature and no grain line at all, while Ostara
-        // drew them on the smallest size of the run.
-        layer.reference = (index == 0);
+        layer.sizeId = index < loadedIds.size() ? loadedIds.at(index) : QString();
+        // **Les enfants vont sur la taille que le payload NOMME**, et sur elle seule — c'est la
+        // référence, lue dans le fichier (`CutSize::reference`), jamais « la première du run ». La
+        // désigner par le rang se trompe dès que le run ne commence pas par elle.
+        layer.reference = size.reference;
+        // Une taille que le run a dû prendre pour asseoir le décor, et que l'utilisateur n'a pas
+        // demandée : elle ne se DESSINE pas.
+        layer.hidden = !sizeIds.contains(layer.sizeId) && !layer.sizeId.isEmpty();
 
         SizeLayer engineLayer;
         engineLayer.label = size.label;
@@ -293,13 +312,20 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
                 continue;
             }
             piece.contourNodes.append(node);
-            engineLayer.pieces.append(piece);
+            // ⚠️ **Une taille cachée ne prend pas de place.** Elle n'est là que pour asseoir le
+            // décor : lui donner une empreinte ferait réserver du tissu pour une pièce que rien ne
+            // dessine, et le plan porterait un trou à sa place.
+            if (!layer.hidden)
+            {
+                engineLayer.pieces.append(piece);
+            }
 
             PrintPiece drawn;
             drawn.name = pose.name;
             drawn.footprint = pose.footprint;
             drawn.outline = pose.outline;
-            drawn.ink = pose.ink;
+            // Son encre non plus ne se dessine pas ; ses enfants, si — c'est le décor.
+            drawn.ink = layer.hidden ? QVector<QPolygonF>() : pose.ink;
             drawn.hasGrainLine = pose.hasGrainLine;
             drawn.grainA = pose.grainA;
             drawn.grainB = pose.grainB;
