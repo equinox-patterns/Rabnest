@@ -72,12 +72,26 @@ signals:
     void Export(const QString &path);
     void Back();
 
+protected:
+    /// The interface has changed language: the page's own words are set again. The layer names are
+    /// the PDF's, and those never move.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void Retranslate();
+
     void BrowseFolder();
     void ExportNow();
     void UpdateExportEnabled();
 
     QString m_folder;
+
+    QLabel *m_title = nullptr;
+    QLabel *m_subtitle = nullptr;
+    QLabel *m_nameLabel = nullptr;
+    QLabel *m_folderLabel = nullptr;
+    QPushButton *m_browse = nullptr;
+    QPushButton *m_backButton = nullptr;
 
     QVBoxLayout *m_entriesLayout = nullptr;
     QLabel *m_empty = nullptr;

@@ -48,7 +48,12 @@ PrintRunDialog::PrintRunDialog(const QString &name, const QSizeF &sheetMm, int s
     auto *form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
-    const QString count = sheets == 1 ? tr("1 sheet") : tr("%1 sheets").arg(sheets);
+    // ⚠️ **`%n`, et pas `%1`.** Un nombre glissé par `%1` laisse Qt devant une chaîne ordinaire, avec
+    // UNE case de traduction : le tchèque, le polonais, le croate et le roumain changent la forme du
+    // nom selon le nombre, et une seule case les oblige à choisir une forme fausse pour une partie
+    // des nombres (« 2 listů » au lieu de « 2 listy »). `%n` fait de la chaîne un message numéral :
+    // chaque langue reçoit autant de formes qu'elle en a besoin, et c'est Qt qui choisit à l'affichage.
+    const QString count = tr("%n sheet(s)", nullptr, sheets);
 
     form->addRow(tr("Run"), new QLabel(name, this));
     form->addRow(tr("Sheets"),

@@ -27,6 +27,7 @@
 
 #include <QApplication>
 
+#include "app/rabnestlanguage.h"
 #include "app/rabnesttheme.h"
 #include "app/rabnestwindow.h"
 
@@ -36,6 +37,22 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(QStringLiteral("Rabnest"));
     QApplication::setApplicationVersion(QStringLiteral("0.3.0"));
     QApplication::setOrganizationName(QStringLiteral("Sophie Denys"));
+
+    // **Before any widget exists, and after the application is named.** The name is what QSettings
+    // files the choice under, so reading the language before it would never find the stored answer
+    // and the interface would fall back to the system's on every launch.
+    const QString language = RabnestLanguage::Current();
+    if (RabnestLanguage::Load(language))
+    {
+        // One line, and it is there for one reason: a window that speaks the wrong language never
+        // says why, and the console is where that answer costs nothing.
+        qInfo("Language: %s", qPrintable(language));
+    }
+    else
+    {
+        qWarning("Language: %s — no translation file is embedded for it, the interface stays in English.",
+                 qPrintable(language));
+    }
 
     // Before any widget exists: the look is in place when the first one is built, so nothing is ever
     // drawn with a default it will not keep.

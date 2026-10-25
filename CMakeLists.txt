@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Svg SvgWidgets PrintSupport)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent Svg SvgWidgets PrintSupport LinguistTools)
 find_package(ZLIB REQUIRED)
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -56,6 +56,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/app/printrundialog.cpp
     src/app/printrundialog.h
     src/app/factorywidgets.h
+    src/app/rabnestlanguage.cpp
+    src/app/rabnestlanguage.h
     src/app/rabnesttheme.cpp
     src/app/rabnesttheme.h
     src/app/runsdock.cpp
@@ -124,6 +126,12 @@ set_target_properties(Rabnest PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.sophiedenys.rabnest"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.3.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3"
+    MACOSX_BUNDLE TRUE
+    # ⚠️ **Sans ce plist, l'interface est en anglais sur une machine française.** macOS donne sa
+    # langue au processus d'après les langues que le bundle déclare parler ; un bundle qui n'en
+    # déclare aucune est réputé ne parler que l'anglais, et `QLocale::system()` répond `en_US` quoi
+    # que dise le système. Le plist porte donc les dix-sept codes de RABNEST_LOCALES.
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in"
 )
 
 # src/ local : NestingDialog.cpp fait #include "ui/NestingDialog.h"
@@ -188,3 +196,39 @@ target_include_directories(rabnest_print PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 # PrintSupport : `--svg=` écrit par le MÊME écrivain que le PDF, qui peint aussi sur une imprimante.
 target_link_libraries(rabnest_print PRIVATE Trame Qt6::Widgets Qt6::Svg Qt6::PrintSupport
                                           ZLIB::ZLIB)
+
+# ══════════════════════════════════════════════════════════════════════════
+# Traductions — embarquées dans le binaire (ressources Qt), comme dans Ostara
+# MERGE_QT_TRANSLATIONS fusionne les traductions de Qt lui-même dans les .qm
+# de l'application : un seul traducteur à installer, et les dialogues natifs
+# (QFileDialog, les boutons Yes/No) parlent aussi la langue choisie.
+# ══════════════════════════════════════════════════════════════════════════
+set(RABNEST_TS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/share/translations")
+
+# Les dix-sept langues d'Ostara. L'anglais n'est pas ici : c'est la langue des
+# chaînes sources, il n'a pas de fichier.
+set(RABNEST_LOCALES
+    cs_CZ de_DE el_GR es_ES fi_FI fr_FR hr_HR hu_HU
+    id_ID it_IT ja_JP nl_NL pl_PL pt_BR ro_RO uk_UA zh_CN
+)
+
+set(RABNEST_TS_FILES)
+foreach(locale ${RABNEST_LOCALES})
+    list(APPEND RABNEST_TS_FILES ${RABNEST_TS_DIR}/rabnest_${locale}.ts)
+endforeach()
+
+foreach(locale ${RABNEST_LOCALES})
+    set_source_files_properties(
+        ${RABNEST_TS_DIR}/rabnest_${locale}.ts
+        PROPERTIES QT_I18N_TRANSLATED_LANGUAGES ${locale}
+    )
+endforeach()
+
+# Certaines locales n'ont pas de catalogue Qt (id_ID, ro_RO, el_GR) : ce n'est
+# pas une erreur, c'est un dialogue natif qui restera en anglais.
+set(QT_NO_MISSING_CATALOG_LANGUAGE_WARNING ON)
+
+qt_add_translations(Rabnest
+    TS_FILES ${RABNEST_TS_FILES}
+    MERGE_QT_TRANSLATIONS
+)

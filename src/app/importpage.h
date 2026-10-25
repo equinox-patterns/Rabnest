@@ -31,6 +31,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 
 /// The empty state: one sentence, one button, and the whole window behind it.
 ///
@@ -56,8 +57,17 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
 
+    /// The interface has changed language: the three sentences of the card are set again. The word
+    /// mark is a name, and a name does not move.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void Retranslate();
+
     QWidget *m_card = nullptr;
+    QLabel *m_question = nullptr;
+    QLabel *m_hint = nullptr;
+    QPushButton *m_browse = nullptr;
     QLabel *m_error = nullptr;
 
     void Browse();

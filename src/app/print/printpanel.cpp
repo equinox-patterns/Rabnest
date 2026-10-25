@@ -33,6 +33,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QLabel>
 #include <QSignalBlocker>
@@ -273,6 +274,55 @@ auto PrintPanel::DocumentWidthMm() const -> double
 void PrintPanel::SetSizesText(const QString &text)
 {
     m_sizes->setText(text);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void PrintPanel::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void PrintPanel::Retranslate()
+{
+    // The labels were made by the form layout, so they are found back through the field they label.
+    const auto Retext = [this](QWidget *field, const QString &text) {
+        if (field == nullptr)
+        {
+            return;
+        }
+        if (auto *label = qobject_cast<QLabel *>(m_form->labelForField(field)))
+        {
+            label->setText(text);
+        }
+    };
+
+    Retext(m_unit, tr("Unit:"));
+    Retext(m_sizes, tr("Generate:"));
+    Retext(m_model, tr("Print model:"));
+    Retext(m_columns, tr("Columns:"));
+    Retext(m_documentWidth, tr("Document width:"));
+    Retext(m_margin, tr("Document margin:"));
+    Retext(m_gap, tr("Space between pieces:"));
+
+    m_plainOutline->setText(tr("Use a plain black outline instead of the pattern's"));
+
+    // The note speaks of the box, so it follows the run: one size, or several.
+    const QString note =
+        m_singleSize
+            ? tr("On screen, every size is drawn with a plain line so the plan stays readable. The "
+                 "export uses the pattern's own dashes, unless the plain black outline above is "
+                 "asked for.",
+                 "note under the plain-outline box")
+            : tr("On screen, every size is drawn with a plain line so the plan stays readable. The "
+                 "export uses each size's own dashes.",
+                 "note about the canvas, when the run has several sizes");
+    m_plainNote->setText(note);
 }
 
 //---------------------------------------------------------------------------------------------------------------------

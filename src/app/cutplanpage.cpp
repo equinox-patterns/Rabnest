@@ -28,6 +28,7 @@
 
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
@@ -92,12 +93,12 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     layout->setSpacing(8);
 
     // ── Ce que la génération fait, dit avant les onglets ────────────────────────────────────────
-    auto *again = new QLabel(
+    m_again = new QLabel(
         tr("Each generation makes one output. Once it is made, you can come back and make more."),
         this);
-    again->setObjectName(QStringLiteral("panelHint"));
-    again->setWordWrap(true);
-    layout->addWidget(again);
+    m_again->setObjectName(QStringLiteral("panelHint"));
+    m_again->setWordWrap(true);
+    layout->addWidget(m_again);
 
     // ── Les trois onglets, comme dans Ostara ────────────────────────────────────────────────────
     //
@@ -112,16 +113,16 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     cuttingLayout->setContentsMargins(16, 12, 16, 12);
     cuttingLayout->setSpacing(8);
 
-    auto *title = new QLabel(tr("The cutting plan"), cutting);
-    title->setObjectName(QStringLiteral("stepTitle"));
-    cuttingLayout->addWidget(title);
+    m_cutTitle = new QLabel(tr("The cutting plan"), cutting);
+    m_cutTitle->setObjectName(QStringLiteral("stepTitle"));
+    cuttingLayout->addWidget(m_cutTitle);
 
-    auto *subtitle = new QLabel(
+    m_cutSubtitle = new QLabel(
         tr("A cut plan is laid for one size. Tick the sizes you want: each one gets its own plan."),
         cutting);
-    subtitle->setObjectName(QStringLiteral("stepSubtitle"));
-    subtitle->setWordWrap(true);
-    cuttingLayout->addWidget(subtitle);
+    m_cutSubtitle->setObjectName(QStringLiteral("stepSubtitle"));
+    m_cutSubtitle->setWordWrap(true);
+    cuttingLayout->addWidget(m_cutSubtitle);
     cuttingLayout->addSpacing(16);
 
     // ── Les tailles ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     foldedHint->setWordWrap(true);
     foldedHint->setContentsMargins(24, 0, 0, 0);
     cuttingLayout->addWidget(foldedHint);
+    m_foldedHint = foldedHint;
 
     m_oneWay = new QCheckBox(tr("All pieces the same way round"), cutting);
     m_oneWay->setCursor(Qt::PointingHandCursor);
@@ -200,6 +202,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     oneWayHint->setWordWrap(true);
     oneWayHint->setContentsMargins(24, 0, 0, 0);
     cuttingLayout->addWidget(oneWayHint);
+    m_oneWayHint = oneWayHint;
 
     // What does not fill the tab stays at its top, where it reads.
     cuttingLayout->addStretch(1);
@@ -215,6 +218,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     auto *printTitle = new QLabel(tr("The print"), printPage);
     printTitle->setObjectName(QStringLiteral("stepTitle"));
     printLayout->addWidget(printTitle);
+    m_printTitle = printTitle;
 
     auto *printSubtitle = new QLabel(
         tr("The pattern is laid on the sheets you will print on, and the sheets carry their frame, "
@@ -223,6 +227,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     printSubtitle->setObjectName(QStringLiteral("stepSubtitle"));
     printSubtitle->setWordWrap(true);
     printLayout->addWidget(printSubtitle);
+    m_printSubtitle = printSubtitle;
     printLayout->addSpacing(12);
 
     m_print = new PrintPanel(printPage);
@@ -243,6 +248,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
         bold.setBold(true);
         note->setFont(bold);
         box->addWidget(note);
+        m_printSourceNote = note;
     }
     m_printSourceBox->hide();
     printLayout->addWidget(m_printSourceBox);
@@ -264,6 +270,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     auto *projectorTitle = new QLabel(tr("The projection"), projector);
     projectorTitle->setObjectName(QStringLiteral("stepTitle"));
     projectorLayout->addWidget(projectorTitle);
+    m_projectorTitle = projectorTitle;
 
     auto *projectorSubtitle = new QLabel(
         tr("The pieces you ticked are laid on one page, at their real size, so that the fabric can be "
@@ -273,6 +280,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     projectorSubtitle->setObjectName(QStringLiteral("stepSubtitle"));
     projectorSubtitle->setWordWrap(true);
     projectorLayout->addWidget(projectorSubtitle);
+    m_projectorSubtitle = projectorSubtitle;
     projectorLayout->addSpacing(16);
 
     auto *projectorForm = new QFormLayout();
@@ -289,6 +297,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     m_projectorGap = CmSpin(10.0, 50.0, projector);
     m_projectorGap->setMinimum(5.0);
     projectorForm->addRow(tr("Space between two pieces"), m_projectorGap);
+    m_projectorForm = projectorForm;
 
     projectorLayout->addLayout(projectorForm);
     projectorLayout->addSpacing(12);
@@ -310,6 +319,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
         bold.setBold(true);
         note->setFont(bold);
         box->addWidget(note);
+        m_projectorSourceNote = note;
     }
     m_projectorSourceBox->hide();
     projectorLayout->addWidget(m_projectorSourceBox);
@@ -322,6 +332,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     projectorNote->setObjectName(QStringLiteral("outputDescription"));
     projectorNote->setWordWrap(true);
     projectorLayout->addWidget(projectorNote);
+    m_projectorNote = projectorNote;
 
     projectorLayout->addStretch(1);
 
@@ -348,6 +359,7 @@ CutPlanPage::CutPlanPage(QWidget *parent)
     back->setCursor(Qt::PointingHandCursor);
     layout->addWidget(back);
     connect(back, &QPushButton::clicked, this, &CutPlanPage::Back);
+    m_back = back;
 
     connect(m_folded, &QCheckBox::toggled, this, [this](bool folded) {
         // What she typed is the cloth as it comes off the bolt; the halving is the plan's business,
@@ -499,6 +511,102 @@ void CutPlanPage::UpdateContinue()
     // No size, no plan: there is no plan with nothing in it, so the way forward is closed rather
     // than leading to an empty canvas.
     m_continue->setEnabled(m_boxes.isEmpty() || !CheckedSizeIds().isEmpty());
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::Retranslate()
+{
+    m_again->setText(
+        tr("Each generation makes one output. Once it is made, you can come back and make more."));
+
+    // ── Cutting plan ────────────────────────────────────────────────────────────────────────────
+    m_cutTitle->setText(tr("The cutting plan"));
+    m_cutSubtitle->setText(
+        tr("A cut plan is laid for one size. Tick the sizes you want: each one gets its own plan."));
+
+    // The field labels were made by the form layouts, not by this page: they are found back through
+    // the field they belong to, which is the only handle the layout keeps on them.
+    const auto Retext = [](QFormLayout *form, QWidget *field, const QString &text) {
+        if (form == nullptr || field == nullptr)
+        {
+            return;
+        }
+        if (auto *label = qobject_cast<QLabel *>(form->labelForField(field)))
+        {
+            label->setText(text);
+        }
+    };
+
+    Retext(m_form, m_width, tr("Fabric width"));
+    Retext(m_form, m_liningWidth, tr("Lining width"));
+    Retext(m_form, m_margin, tr("Margin from the edges"));
+    Retext(m_form, m_gap, tr("Gap between two pieces"));
+
+    m_lining->setText(tr("Lining"));
+    m_folded->setText(tr("The fabric is folded"));
+    m_oneWay->setText(tr("All pieces the same way round"));
+    m_foldedHint->setText(
+        tr("Folded: a piece cut on the fold is laid on the fold. Unfolded: that piece is shown "
+           "whole, so unfolded. The width you enter is always the unfolded fabric."));
+    m_oneWayHint->setText(
+        tr("The grain line is always respected, ticked or not. Unticked, pieces may be laid head to "
+           "tail; ticked, they all lie the same way round."));
+
+    m_tabs->setTabText(0, tr("Cutting plan"));
+
+    // ── Print ───────────────────────────────────────────────────────────────────────────────────
+    m_tabs->setTabText(1, tr("Print"));
+    m_printTitle->setText(tr("The print"));
+    m_printSubtitle->setText(
+        tr("The pattern is laid on the sheets you will print on, and the sheets carry their frame, "
+           "their marks and their numbers."));
+    m_printSourceBox->setTitle(tr("The format of this PDF"));
+    m_printSourceNote->setText(
+        tr("This PDF was exported as a Projector: the cut quantity written on each piece is the "
+           "projection's, and the words are drawn, so they cannot be rewritten here. To lay out "
+           "a print, generate it from a PDF exported in the Print format."));
+
+    // ── Projection ──────────────────────────────────────────────────────────────────────────────
+    m_tabs->setTabText(2, tr("Projector"));
+    m_projectorTitle->setText(tr("The projection"));
+    m_projectorSubtitle->setText(
+        tr("The pieces you ticked are laid on one page, at their real size, so that the fabric can be "
+           "cut under the projection. The page is as small as the pieces allow, and the width is "
+           "searched: you do not give one."));
+    Retext(m_projectorForm, m_projectorMargin, tr("Space from the edges"));
+    Retext(m_projectorForm, m_projectorGap, tr("Space between two pieces"));
+    m_projectorSourceBox->setTitle(tr("The format of this PDF"));
+    m_projectorSourceNote->setText(
+        tr("This PDF was not exported in the Projector format: the cut quantity written on each "
+           "piece is the document's own, and the words are drawn, so they cannot be rewritten "
+           "here. To lay out a projection, generate it from a PDF exported in the Projector "
+           "format."));
+    m_projectorNote->setText(
+        tr("The PDF also carries three calibration layers, which the canvas does not show: a 5 cm "
+           "grid, a 3 in grid and a magenta background."));
+
+    // The two suffixes say what the width MEANS, so they follow the fold as well as the language.
+    const bool folded = m_folded->isChecked();
+    m_width->setSuffix(folded ? tr(" cm (unfolded)") : tr(" cm"));
+    m_liningWidth->setSuffix(folded ? tr(" cm (unfolded)") : tr(" cm"));
+
+    m_continue->setText(tr("Generate the plan"));
+    m_back->setText(tr("Back"));
+
+    // The line that names the sizes of the run is a sentence too, and it is built from the ticked
+    // boxes: saying it again is asking it again.
+    UpdateGenerateText();
 }
 
 //---------------------------------------------------------------------------------------------------------------------

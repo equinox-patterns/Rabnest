@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+
+	<key>CFBundleName</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundleIdentifier</key>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+	<key>CFBundleExecutable</key>
+	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+
+	<key>CFBundleVersion</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+
+	<key>NSHumanReadableCopyright</key>
+	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
+
+	<key>CFBundleIconFile</key>
+	<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+
+	<!--
+	  ⚠️ **Ce bloc n'est pas décoratif : il décide la langue de l'interface.**
+
+	  macOS demande au processus sa langue avant toute chose, et la lui donne d'après ce que le
+	  bundle déclare savoir parler. Un bundle qui ne déclare rien est réputé ne parler que sa
+	  région de développement — l'anglais — et `QLocale::system()` répond alors `en_US` même sur
+	  une machine entièrement française. La détection de langue de Rabnest suit cette réponse :
+	  elle était donc juste, et le bundle la rendait fausse.
+
+	  **Les codes doivent rester les dix-sept de RABNEST_LOCALES** (CMakeLists.txt), et l'anglais
+	  n'y figure pas : c'est la langue de développement, déjà couverte par
+	  CFBundleDevelopmentRegion.
+	-->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>cs</string>
+		<string>de</string>
+		<string>el</string>
+		<string>es</string>
+		<string>fi</string>
+		<string>fr</string>
+		<string>hr</string>
+		<string>hu</string>
+		<string>id</string>
+		<string>it</string>
+		<string>ja</string>
+		<string>nl</string>
+		<string>pl</string>
+		<string>pt</string>
+		<string>ro</string>
+		<string>uk</string>
+		<string>zh</string>
+	</array>
+
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+
+</dict>
+</plist>

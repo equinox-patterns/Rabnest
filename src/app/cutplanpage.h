@@ -134,7 +134,18 @@ signals:
     void Continue();
     void Back();
 
+protected:
+    /// The interface has changed language: every word of the three tabs is set again — headings,
+    /// the field labels the form layouts made, the two format warnings, the tab titles, the two
+    /// suffixes of the width fields.
+    ///
+    /// **The form labels are found back through their field**, because the layouts made them: they
+    /// were never in a member, and a label nobody holds is a label nobody can re-say.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void Retranslate();
+
     void UpdateContinue();
     void UpdateGenerateText();
     void UpdateLiningRow();
@@ -165,6 +176,30 @@ private:
     PrintPanel *m_print = nullptr;
     QDoubleSpinBox *m_projectorMargin = nullptr;
     QDoubleSpinBox *m_projectorGap = nullptr;
+
+    /// The projector's form, for the two labels it made.
+    QFormLayout *m_projectorForm = nullptr;
+
+    // ── The words, kept so they can be said again ────────────────────────────────────────────────
+    //
+    // A label a language change must move has to be reachable: a local built once in the constructor
+    // is a word nobody can ever write again.
+    QLabel *m_again = nullptr;
+    QLabel *m_cutTitle = nullptr;
+    QLabel *m_cutSubtitle = nullptr;
+    QLabel *m_foldedHint = nullptr;
+    QLabel *m_oneWayHint = nullptr;
+    QLabel *m_printTitle = nullptr;
+    QLabel *m_printSubtitle = nullptr;
+    QLabel *m_projectorTitle = nullptr;
+    QLabel *m_projectorSubtitle = nullptr;
+    QLabel *m_projectorNote = nullptr;
+
+    /// The bold warning inside each format box, kept to be re-written.
+    QLabel *m_printSourceNote = nullptr;
+    QLabel *m_projectorSourceNote = nullptr;
+
+    QPushButton *m_back = nullptr;
 
     /// Les deux avertissements de format, chacun dans sa boîte : celui de l'onglet Projecteur quand
     /// le PDF n'a pas été exporté pour une projection, celui de l'onglet Print quand il l'a été.

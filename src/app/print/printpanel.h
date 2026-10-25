@@ -87,7 +87,15 @@ signals:
     /// gap. The width of the document follows the sheet and the columns, as in Ostara.
     void Changed();
 
+protected:
+    /// The interface has changed language: the seven field labels, the plain-outline box and the
+    /// note under it are set again. The labels of the unit combo are units, and a millimetre is a
+    /// millimetre in every language.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void Retranslate();
+
     void Build();
     void UpdateFromModel();
     auto DocumentWidthMm() const -> double;

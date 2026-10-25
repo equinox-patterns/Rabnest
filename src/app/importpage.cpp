@@ -29,6 +29,7 @@
 
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QEvent>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -88,17 +89,20 @@ ImportPage::ImportPage(QWidget *parent)
     question->setWordWrap(true);
     card->addWidget(question);
     card->addSpacing(18);
+    m_question = question;
 
     auto *browse = new QPushButton(tr("Import a PDF"), m_card);
     browse->setObjectName(QStringLiteral("primaryButton"));
     browse->setCursor(Qt::PointingHandCursor);
     browse->setDefault(true);
     card->addWidget(browse, 0, Qt::AlignHCenter);
+    m_browse = browse;
 
     auto *hint = new QLabel(tr("or drop the file here"), m_card);
     hint->setObjectName(QStringLiteral("importHint"));
     hint->setAlignment(Qt::AlignHCenter);
     card->addWidget(hint);
+    m_hint = hint;
 
     m_error = new QLabel(m_card);
     m_error->setObjectName(QStringLiteral("importError"));
@@ -140,6 +144,25 @@ void ImportPage::Browse()
     {
         emit FileChosen(path);
     }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ImportPage::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ImportPage::Retranslate()
+{
+    m_question->setText(tr("Import a PDF to begin."));
+    m_browse->setText(tr("Import a PDF"));
+    m_hint->setText(tr("or drop the file here"));
 }
 
 //---------------------------------------------------------------------------------------------------------------------

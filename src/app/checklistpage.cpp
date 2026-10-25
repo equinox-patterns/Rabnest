@@ -28,6 +28,7 @@
 #include "checklistpage.h"
 
 #include <QCheckBox>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -144,6 +145,35 @@ void ChecklistPage::SetContinueText(const QString &text)
 void ChecklistPage::SetBackVisible(bool visible)
 {
     m_back->setVisible(visible);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ChecklistPage::SetTexts(const QString &title, const QString &subtitle)
+{
+    m_title->setText(title);
+    m_subtitle->setText(subtitle);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ChecklistPage::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ChecklistPage::Retranslate()
+{
+    // The title and the subtitle are NOT here: they are the caller's words, and it gives them again
+    // through `SetTexts`. Writing them here would mean this page knowing whether it asks about sizes
+    // or about pieces — and it deliberately does not.
+    m_empty->setText(tr("Nothing to show."));
+    m_back->setText(tr("Back"));
+    m_continue->setText(tr("Next"));
 }
 
 //---------------------------------------------------------------------------------------------------------------------

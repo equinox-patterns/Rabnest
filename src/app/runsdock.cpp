@@ -288,49 +288,120 @@ void RunsDock::AddRun(const CutPlan &plan, Kind kind)
     m_table->insertRow(row);
     m_table->setRowHeight(row, kRowHeight);
 
-    auto *name = new QTableWidgetItem(RunsDock::Name(plan, kind));
+    auto *name = new QTableWidgetItem();
     name->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-    name->setToolTip(plan.ok ? RunsDock::Name(plan, kind) : plan.error);
     m_table->setItem(row, kName, name);
 
     struct Action
     {
         int column;
         QString icon;
-        QString tooltip;
     };
 
-    const QVector<Action> actions = {
-        {kInfo, QStringLiteral("info"), tr("What this output was asked for")},
-        // The two that are not wired yet say so, in the tooltip, rather than doing nothing in
-        // silence when pressed.
-        // A print run is not an image: it leaves as a PDF with one layer per size and one page per
-        // sheet, and the tooltip is where that is said before anything is pressed.
-        {kExport, QStringLiteral("download"),
-         kind == Kind::Projector
-             ? tr("Export this projection as PDF")
-             : (kind == Kind::Print ? tr("Export this print as PDF")
-                                    : tr("Export this plan as an image"))},
-        // A cutting plan prints as one sheet the plan is shrunk onto; a print run prints as its own
-        // sheets, at their size. Two gestures, two sentences.
-        {kPrint, QStringLiteral("printer"),
-         kind == Kind::Projector
-             ? tr("Print this projection")
-             : (kind == Kind::Print ? tr("Print these sheets") : tr("Print this plan"))},
-        {kDelete, QStringLiteral("trash"), tr("Delete")}};
+    // The icons are made here and the words by `ApplyRowTexts`: an icon does not change with the
+    // language, a tooltip does.
+    const QVector<Action> actions = {{kInfo, QStringLiteral("info")},
+                                     {kExport, QStringLiteral("download")},
+                                     {kPrint, QStringLiteral("printer")},
+                                     {kDelete, QStringLiteral("trash")}};
 
     for (const Action &action : actions)
     {
         auto *cell = new QTableWidgetItem();
         cell->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
         cell->setIcon(LitIcon(action.icon));
-        cell->setToolTip(action.tooltip);
         m_table->setItem(row, action.column, cell);
     }
+
+    m_rows.append({plan, kind});
+    ApplyRowTexts(row);
 
     m_table->setCurrentCell(row, kName);
     RefreshEnabledState();
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+void RunsDock::ApplyRowTexts(int row)
+{
+    if (row < 0 || row >= m_rows.size())
+    {
+        return;
+    }
+
+    const Row &entry = m_rows.at(row);
+    const QString name = RunsDock::Name(entry.plan, entry.kind);
+
+    if (QTableWidgetItem *item = m_table->item(row, kName))
+    {
+        item->setText(name);
+        item->setToolTip(entry.plan.ok ? name : entry.plan.error);
+    }
+
+    // The two that are not wired yet say so, in the tooltip, rather than doing nothing in silence
+    // when pressed. A print run is not an image: it leaves as a PDF with one layer per size and one
+    // page per sheet, and the tooltip is where that is said before anything is pressed. A cutting
+    // plan prints as one sheet the plan is shrunk onto; a print run prints as its own sheets, at
+    // their size. Two gestures, two sentences.
+    const QString exportText =
+        entry.kind == Kind::Projector
+            ? tr("Export this projection as PDF")
+            : (entry.kind == Kind::Print ? tr("Export this print as PDF")
+                                         : tr("Export this plan as an image"));
+    const QString printText =
+        entry.kind == Kind::Projector
+            ? tr("Print this projection")
+            : (entry.kind == Kind::Print ? tr("Print these sheets") : tr("Print this plan"));
+
+    if (QTableWidgetItem *item = m_table->item(row, kInfo))
+    {
+        item->setToolTip(tr("What this output was asked for"));
+    }
+    if (QTableWidgetItem *item = m_table->item(row, kExport))
+    {
+        item->setToolTip(exportText);
+    }
+    if (QTableWidgetItem *item = m_table->item(row, kPrint))
+    {
+        item->setToolTip(printText);
+    }
+    if (QTableWidgetItem *item = m_table->item(row, kDelete))
+    {
+        item->setToolTip(tr("Delete"));
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RunsDock::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QDockWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RunsDock::Retranslate()
+{
+    setWindowTitle(tr("Outputs"));
+
+    // The generate button says why it is off, which is the state and not a word: the sentence follows
+    // the state rather than the other way round.
+    m_generate->setToolTip(m_generate->isEnabled() ? tr("Lay these pieces out again")
+                                                   : tr("Import a PDF first"));
+
+    m_home->setText(tr("Back to home"));
+    m_home->setToolTip(tr("Close this PDF and go back to the start; every output of it is lost"));
+
+    // The two other tooltips of the top row, and every row of the table.
+    RefreshEnabledState();
+    for (int row = 0; row < m_rows.size(); ++row)
+    {
+        ApplyRowTexts(row);
+    }
+}
+
 
 //---------------------------------------------------------------------------------------------------------------------
 auto RunsDock::CurrentRow() const -> int
@@ -351,6 +422,7 @@ void RunsDock::RemoveRun(int index)
     m_currentRow = -1;
 
     m_table->removeRow(index);
+    m_rows.removeAt(index);
 
     // **Le canevas ne doit pas garder la sortie qu'on vient d'effacer.** Qt ne choisit pas toujours
     // une ligne de remplacement après un retrait ; quand il n'en choisit aucune, on en choisit une,
@@ -367,6 +439,7 @@ void RunsDock::RemoveRun(int index)
 void RunsDock::Clear()
 {
     m_table->setRowCount(0);
+    m_rows.clear();
     m_currentRow = -1;
     emit CurrentChanged(-1);
     RefreshEnabledState();

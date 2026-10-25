@@ -31,6 +31,7 @@
 
 #include <QCheckBox>
 #include <QDir>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -48,17 +49,17 @@ LayersPage::LayersPage(QWidget *parent)
     layout->setContentsMargins(32, 28, 32, 24);
     layout->setSpacing(8);
 
-    auto *title = new QLabel(tr("Layers"), this);
-    title->setObjectName(QStringLiteral("stepTitle"));
-    layout->addWidget(title);
+    m_title = new QLabel(tr("Layers"), this);
+    m_title->setObjectName(QStringLiteral("stepTitle"));
+    layout->addWidget(m_title);
 
-    auto *subtitle = new QLabel(tr("This PDF does not come from Ostara: there are no pieces to choose and no plan "
-                                   "to lay out again. Tick the layers to keep — the others are "
-                                   "removed from the file."),
-                                this);
-    subtitle->setObjectName(QStringLiteral("stepSubtitle"));
-    subtitle->setWordWrap(true);
-    layout->addWidget(subtitle);
+    m_subtitle = new QLabel(tr("This PDF does not come from Ostara: there are no pieces to choose and no plan "
+                               "to lay out again. Tick the layers to keep — the others are "
+                               "removed from the file."),
+                           this);
+    m_subtitle->setObjectName(QStringLiteral("stepSubtitle"));
+    m_subtitle->setWordWrap(true);
+    layout->addWidget(m_subtitle);
     layout->addSpacing(20);
 
     auto *scroll = new QScrollArea(this);
@@ -87,6 +88,7 @@ LayersPage::LayersPage(QWidget *parent)
 
     m_name = new QLineEdit(this);
     form->addRow(tr("File name"), m_name);
+    m_nameLabel = qobject_cast<QLabel *>(form->labelForField(m_name));
 
     auto *folderRow = new QWidget(this);
     auto *folderLayout = new QHBoxLayout(folderRow);
@@ -100,6 +102,8 @@ LayersPage::LayersPage(QWidget *parent)
     browse->setCursor(Qt::PointingHandCursor);
     folderLayout->addWidget(browse);
     form->addRow(tr("Folder"), folderRow);
+    m_browse = browse;
+    m_folderLabel = qobject_cast<QLabel *>(form->labelForField(folderRow));
     layout->addLayout(form);
 
     m_error = new QLabel(this);
@@ -114,6 +118,7 @@ LayersPage::LayersPage(QWidget *parent)
     back->setObjectName(QStringLiteral("secondaryButton"));
     back->setCursor(Qt::PointingHandCursor);
     buttons->addWidget(back);
+    m_backButton = back;
     buttons->addStretch();
     m_export = new QPushButton(tr("Export the new PDF"), this);
     m_export->setObjectName(QStringLiteral("primaryButton"));
@@ -180,6 +185,42 @@ void LayersPage::ShowError(const QString &message)
 {
     m_error->setText(message);
     m_error->setVisible(!message.isEmpty());
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void LayersPage::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void LayersPage::Retranslate()
+{
+    m_title->setText(tr("Layers"));
+    m_subtitle->setText(tr("This PDF does not come from Ostara: there are no pieces to choose and no plan "
+                           "to lay out again. Tick the layers to keep — the others are "
+                           "removed from the file."));
+    m_empty->setText(tr("This PDF carries no layer: there is nothing to reduce."));
+
+    // The two form labels are the only widgets of the page that were never held in a member: they are
+    // made by the layout, so they are found back through it.
+    if (m_nameLabel != nullptr)
+    {
+        m_nameLabel->setText(tr("File name"));
+    }
+    if (m_folderLabel != nullptr)
+    {
+        m_folderLabel->setText(tr("Folder"));
+    }
+
+    m_browse->setText(tr("Choose…"));
+    m_backButton->setText(tr("Back"));
+    m_export->setText(tr("Export the new PDF"));
 }
 
 //---------------------------------------------------------------------------------------------------------------------

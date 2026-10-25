@@ -103,6 +103,11 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
+    /// The interface has changed language: the cancel button, and the two questions the checklist
+    /// pages are asked. The pages themselves set their own three words; the QUESTION is the
+    /// overlay's, because the overlay is what decided this page is about sizes.
+    void changeEvent(QEvent *event) override;
+
 private:
     void ChooseFile(const QString &path);
     void ShowSizes();
@@ -112,6 +117,7 @@ private:
     void ReduceLayers(const QString &target);
     void ShowPage(QWidget *page);
     void Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining);
+    void Retranslate();
 
     BusyDialog *m_busy = nullptr;
 

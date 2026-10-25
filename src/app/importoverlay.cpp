@@ -38,6 +38,7 @@
 
 #include <QApplication>
 #include <QDialog>
+#include <QEvent>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QFuture>
@@ -229,6 +230,28 @@ void ImportOverlay::ShowPage(QWidget *page)
     m_stack->setCurrentWidget(page);
     // Nothing to cancel before a PDF has been chosen: the import page IS the way in.
     m_cancel->setVisible(page != m_import);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ImportOverlay::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QWidget::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void ImportOverlay::Retranslate()
+{
+    m_cancel->setText(tr("Cancel"));
+
+    // The two questions, and not the pages' own words: a checklist page knows how to say its buttons,
+    // but only this overlay knows that this one asks about sizes and that one about pieces.
+    m_sizes->SetTexts(tr("Sizes"), tr("Tick the sizes to keep."));
+    m_pieces->SetTexts(tr("Pieces"), tr("Tick the pieces to keep."));
 }
 
 //---------------------------------------------------------------------------------------------------------------------

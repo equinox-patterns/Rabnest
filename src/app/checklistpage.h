@@ -70,11 +70,22 @@ public:
     void SetContinueText(const QString &text);
     void SetBackVisible(bool visible);
 
+    /// The two words of the step, given again — the page is asked "sizes" or "pieces" by whoever
+    /// builds it, so it cannot translate its own title: only the caller knows which question it is.
+    void SetTexts(const QString &title, const QString &subtitle);
+
 signals:
     void Continue();
     void Back();
 
+protected:
+    /// The interface has changed language: the list entries are the caller's (they come from the
+    /// PDF), and only the page's own three words are set again here.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void Retranslate();
+
     QLabel *m_title = nullptr;
     QLabel *m_subtitle = nullptr;
     QLabel *m_empty = nullptr;

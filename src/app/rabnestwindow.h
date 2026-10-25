@@ -45,6 +45,7 @@
 class ImportOverlay;
 class PrintPanel;
 class QDockWidget;
+class QMenu;
 class QTimer;
 class RunsDock;
 class WorkspacePage;
@@ -65,7 +66,25 @@ public:
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
+    /// The interface has changed language: every text of this window that is not rebuilt on use is
+    /// set again here. Qt sends the event to every widget when a translator goes in or out, so each
+    /// one answers for its own words — the window does not reach into its pages.
+    void changeEvent(QEvent *event) override;
+
 private:
+    /// The menu bar, and the one menu it holds: `Languages`, the seventeen, and the one in force,
+    /// ticked.
+    ///
+    /// **A menu of its own, not an item inside the application menu.** On macOS the menu that carries
+    /// the application's name belongs to the system and holds what the system puts there — About,
+    /// Services, Hide, Quit. Nothing else can live in it; the closest we can get is a menu of our own
+    /// right beside it, which is one click away and does not pretend to be something it is not.
+    void BuildMenu();
+    void ChooseLanguage(const QString &code);
+
+    /// Sets again every text of this window that a change of language must move.
+    void Retranslate();
+
     void Import();
     void GenerateOutput();
     void DeleteOutput(int index);
@@ -149,6 +168,10 @@ private:
     WorkspacePage *m_workspace = nullptr;
     RunsDock *m_runs = nullptr;
     ImportOverlay *m_overlay = nullptr;
+
+    /// The menu that lists the languages. Kept because its title is one of the words that has to
+    /// follow a change of language.
+    QMenu *m_languageMenu = nullptr;
 
     /// What the last accepted journey settled: the pattern, and what she kept of it. Empty until a
     /// first import — which is what closes « lay out another plan ».

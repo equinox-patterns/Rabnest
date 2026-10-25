@@ -111,13 +111,39 @@ protected:
     /// must become the dark one for as long as it is there.
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+    /// The interface has changed language: every word of the dock is set again — its title, its two
+    /// buttons, and every row, because a row's name and its four tooltips were written once when the
+    /// row appeared and would otherwise stay in the language it appeared in.
+    void changeEvent(QEvent *event) override;
+
 private:
     void BuildUi();
     void UpdateGlyphs();
     void RefreshEnabledState();
 
+    /// Sets again the words of one row from the plan it presents.
+    ///
+    /// One place, called twice: when the row appears, and when the language changes. Two paths that
+    /// each spelled the tooltips out would drift, and the drift would show as one row in French
+    /// beside another in English.
+    void ApplyRowTexts(int row);
+
+    void Retranslate();
+
     QTableWidget *m_table = nullptr;
 
+    /// What each row presents. Kept here because a row's name is not a fact about the table: it is
+    /// what the plan is called in the language in force, and naming it again needs the plan.
+    ///
+    /// ⚠️ **A copy, and only for the words.** The plans themselves belong to the window; this is the
+    /// least the dock needs to be able to re-say its own rows.
+    struct Row
+    {
+        CutPlan plan;
+        Kind kind = Kind::Plan;
+    };
+
+    QVector<Row> m_rows;
 
     /// The row announced last: a cell change inside it is not a change of output.
 

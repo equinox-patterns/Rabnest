@@ -35,13 +35,18 @@
 #include "app/outputinfodialog.h"
 #include "app/printplandialog.h"
 #include "app/printrundialog.h"
+#include "app/rabnestlanguage.h"
 #include "app/runsdock.h"
 #include "app/workspacepage.h"
 
 #include <QAbstractButton>
 #include <QAction>
+#include <QActionGroup>
 #include <QCoreApplication>
 #include <QDir>
+#include <QEvent>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPageLayout>
 #include <QPainter>
 #include <QPrintDialog>
@@ -170,6 +175,8 @@ RabnestWindow::RabnestWindow(QWidget *parent)
     setWindowTitle(Title());
     resize(1240, 820);
 
+    BuildMenu();
+
     m_workspace = new WorkspacePage(this);
     setCentralWidget(m_workspace);
 
@@ -252,6 +259,75 @@ RabnestWindow::RabnestWindow(QWidget *parent)
     // the only one: import a PDF. Asked AFTER the window is up, so the workspace is already there
     // underneath — the panel comes over it rather than standing in for it.
     QTimer::singleShot(0, this, [this] { OpenOverlay(false); });
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::BuildMenu()
+{
+    m_languageMenu = menuBar()->addMenu(tr("Languages"));
+
+    // One and only one language at a time: an action group makes the menu tell the truth about which
+    // one is in force, rather than each action guessing it.
+    auto *group = new QActionGroup(this);
+    group->setExclusive(true);
+
+    const QString inForce = RabnestLanguage::Current();
+    for (const RabnestLanguage::Language &language : RabnestLanguage::All())
+    {
+        QAction *action = m_languageMenu->addAction(language.label);
+        action->setCheckable(true);
+        action->setChecked(language.code == inForce);
+        action->setData(language.code);
+        group->addAction(action);
+
+        const QString code = language.code;
+        connect(action, &QAction::triggered, this, [this, code] { ChooseLanguage(code); });
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ChooseLanguage(const QString &code)
+{
+    if (code == RabnestLanguage::Current())
+    {
+        return;
+    }
+
+    // Stored first: if loading the file failed, the next launch still opens in the language she
+    // asked for, and the failure is about one missing file, not about a lost choice.
+    RabnestLanguage::Store(code);
+
+    // Installing or removing the translator makes Qt send `LanguageChange` to every widget: the
+    // window, the dock and the pages each set their own words again. Nothing is rebuilt, so nothing
+    // of what she has laid out is lost.
+    RabnestLanguage::Load(code);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        Retranslate();
+    }
+
+    QMainWindow::changeEvent(event);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::Retranslate()
+{
+    // The application's name is not translated: it is a name, and a name does not change with the
+    // language of the window it is written in.
+    setWindowTitle(Title());
+
+    if (m_languageMenu != nullptr)
+    {
+        m_languageMenu->setTitle(tr("Languages"));
+    }
+
+    // The pages and the dock answer for their own words: Qt hands them the same event, and each one
+    // knows which of its texts a language change moves.
 }
 
 //---------------------------------------------------------------------------------------------------------------------
