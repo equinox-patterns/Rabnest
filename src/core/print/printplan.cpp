@@ -204,7 +204,7 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
                          const QStringList &pieceNames, double marginCm, double gapCm,
                          double binWidthPx, int columns, double sheetHeightMm,
                          const QRectF &coverBlockPx, const QString &modelToken,
-                         bool plainOutline) -> PrintPlan
+                         bool plainOutline, const QSet<QString> &ungrouped) -> PrintPlan
 {
     PrintPlan plan;
     plan.modelToken = modelToken;
@@ -248,7 +248,8 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
 
     QVector<CutSize> sizes;
     QString error;
-    if (!Pattern::Load(document, loadedIds, pieceNames, Cloth::AsDrawn, sizes, &error))
+    if (!Pattern::Load(document, loadedIds, pieceNames, Cloth::AsDrawn, sizes, &error,
+                       Material::Fabric, ungrouped))
     {
         plan.error = error;
         return plan;

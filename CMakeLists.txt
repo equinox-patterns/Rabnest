@@ -110,6 +110,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/core/print/printplan.h
     src/core/print/printrecipe.cpp
     src/core/print/printrecipe.h
+    src/ui/GroupOverlapDialog.cpp
+    src/ui/GroupOverlapDialog.h
     src/ui/NestingDialog.cpp
     src/ui/NestingDialog.h
     share/rabnest.qrc

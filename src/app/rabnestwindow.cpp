@@ -56,6 +56,7 @@
 #include "core/print/printmetrics.h"
 #include "core/print/printpdf.h"
 #include "core/print/printrecipe.h"
+#include "ui/GroupOverlapDialog.h"
 
 #include <QDockWidget>
 #include <QApplication>
@@ -826,6 +827,28 @@ void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &mod
     m_sizeIds = sizeIds;
     m_pieceIds = m_overlay != nullptr ? m_overlay->pieceIds() : m_pieceIds;
 
+    // ── Les groupes que le run garde ENTIERS ─────────────────────────────────────────────────────
+    //
+    // Décision de Sophie (25-10-2026) : une seule dialog pour tout le run, et dedans une boîte par
+    // groupe complet. Dans le PDF d'origine les membres d'un groupe sont superposés ; elle demande,
+    // groupe par groupe, s'ils doivent le rester. « Yes » — coché d'avance — ne change rien ; « No »
+    // dégroupe : chaque membre devient une pièce ordinaire, ses enfants et son empreinte à lui.
+    //
+    // ⚠️ **Avant le run, jamais pendant.** La question porte sur ce qui va être posé ; la poser une
+    // fois le calcul lancé demanderait de le refaire, et un run d'impression se compte en minutes.
+    const QVector<CompleteGroup> wholeGroups =
+        CompleteGroups(document, m_pieceIds);
+    QSet<QString> ungrouped;
+    if (!wholeGroups.isEmpty())
+    {
+        GroupOverlapDialog dialog(wholeGroups, this);
+        if (dialog.exec() != QDialog::Accepted)
+        {
+            return;
+        }
+        ungrouped = dialog.Ungrouped();
+    }
+
     const ExportPrintModel *model = FindExportPrintModel(modelToken);
     if (model == nullptr)
     {
@@ -939,8 +962,9 @@ void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &mod
                                           gapCm = gapMm / 10.0, binWidthPx,
                                           columns = std::max(columns, 1),
                                           sheetHeightMm = model->heightMm, coverBlock,
-                                          token = QString::fromLatin1(model->token), plainOutline] {
+                                          token = QString::fromLatin1(model->token), plainOutline,
+                                          ungrouped] {
         return PrintPlan::Generate(document, sizeIds, pieces, marginCm, gapCm, binWidthPx, columns,
-                                   sheetHeightMm, coverBlock, token, plainOutline);
+                                   sheetHeightMm, coverBlock, token, plainOutline, ungrouped);
     }));
 }

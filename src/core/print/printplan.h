@@ -207,12 +207,16 @@ struct PrintPlan
     /// @param modelToken    the format's token, kept as the run's own fact
     /// @param plainOutline  true to draw every piece black and solid instead of with the pattern's
     ///                      own line — the user's choice, and only ever offered for a single size
+    /// @param ungrouped  the groups the user chose NOT to keep superimposed — see @ref CompleteGroup.
+    ///                   Each of their members is then an ordinary piece: its own drawing, its own
+    ///                   footprint, laid apart. Empty means « keep every group as the file has it ».
     static PrintPlan Generate(const ImportedDocument &document, const QStringList &sizeIds,
                               const QStringList &pieceNames, double marginCm, double gapCm,
                               double binWidthPx, int columns, double sheetHeightMm,
                               const QRectF &coverBlockPx = QRectF(),
                               const QString &modelToken = QString(),
-                              bool plainOutline = false);
+                              bool plainOutline = false,
+                              const QSet<QString> &ungrouped = QSet<QString>());
 };
 
 #endif // PRINTPLAN_H

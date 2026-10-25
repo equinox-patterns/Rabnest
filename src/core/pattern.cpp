@@ -858,9 +858,140 @@ auto ReferenceSize(const ImportedDocument &document) -> QString
 
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
+auto CompleteGroup::MembersPhrase() const -> QString
+{
+    // « A + B + C » — the way a person reads a group's composition. The caller puts it in a sentence.
+    QStringList names;
+    for (const QString &member : members)
+    {
+        names.append(member);
+    }
+    return names.join(QStringLiteral(" + "));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CompleteGroups(const ImportedDocument &document, const QStringList &pieceNames)
+    -> QVector<CompleteGroup>
+{
+    QVector<CompleteGroup> out;
+
+    QDomDocument payload;
+    if (!payload.setContent(document.payload()))
+    {
+        return out;
+    }
+    const QDomElement metadata =
+        payload.documentElement().firstChildElement(QStringLiteral("metadata"));
+    const QDomElement pieces = metadata.firstChildElement(QStringLiteral("pieces"));
+    if (pieces.isNull())
+    {
+        return out;
+    }
+
+    // The names the user kept, with both spellings — the drawing writes `Ourlet_dos` where the payload
+    // names « Ourlet dos », and a dialogue that missed it would offer a group nobody kept whole.
+    QSet<QString> kept;
+    for (const QString &name : pieceNames)
+    {
+        kept.insert(name);
+        kept.insert(Slug(name));
+    }
+
+    // ── Le NOM du groupe ────────────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ **Le payload ne le porte pas.** `<group id="679">` n'a que son identifiant : le nom vit dans
+    // le DESSIN, sur l'élément que Graded écrit pour le groupe — `<g id="Manche__Groupe_"
+    // ostara:id="679">` — sous la forme que le SVG accepte pour un id, donc avec des `_` à la place
+    // des espaces et de la ponctuation. On le relit là et on le dé-slugifie : « Groupe_Test » redonne
+    // « Groupe Test ». Une parenthèse, elle, ne se reconstitue pas (elle vaut un `_` de plus) ; le
+    // jour où Ostara écrira un `name` sur `<group>`, c'est cette lecture qui partira.
+    QHash<QString, QString> groupLabels;
+    for (QDomElement group = pieces.firstChildElement(QStringLiteral("group")); !group.isNull();
+         group = group.nextSiblingElement(QStringLiteral("group")))
+    {
+        const QString name = group.attribute(QStringLiteral("name"));
+        if (!name.isEmpty())
+        {
+            groupLabels.insert(group.attribute(QStringLiteral("id")), name);
+        }
+    }
+    auto deslug = [](QString text) {
+        text.replace(QLatin1Char('_'), QLatin1Char(' '));
+        while (text.contains(QLatin1String("  ")))
+        {
+            text.replace(QLatin1String("  "), QLatin1String(" "));
+        }
+        return text.trimmed();
+    };
+    for (QDomElement layer = payload.documentElement().firstChildElement(QStringLiteral("g"));
+         !layer.isNull(); layer = layer.nextSiblingElement(QStringLiteral("g")))
+    {
+        for (QDomElement drawn = layer.firstChildElement(QStringLiteral("g")); !drawn.isNull();
+             drawn = drawn.nextSiblingElement(QStringLiteral("g")))
+        {
+            const QString id = drawn.attribute(QStringLiteral("ostara:id"));
+            if (id.isEmpty() || groupLabels.contains(id))
+            {
+                continue;
+            }
+            const QString slug = drawn.attribute(QStringLiteral("id"));
+            if (!slug.isEmpty())
+            {
+                groupLabels.insert(id, deslug(slug));
+            }
+        }
+    }
+
+    // The payload writes a `<piece>` per size: a member is one piece, counted once per name.
+    QHash<QString, CompleteGroup> byGroup;
+    QVector<QString> order;
+    QHash<QString, bool> whole;
+    QHash<QString, QSet<QString>> seen;
+    for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
+         element = element.nextSiblingElement(QStringLiteral("piece")))
+    {
+        const QString groupId = element.attribute(QStringLiteral("group"));
+        if (groupId.isEmpty())
+        {
+            continue;
+        }
+
+        const QString name = element.attribute(QStringLiteral("name"));
+        if (seen[groupId].contains(name))
+        {
+            continue;  // already read, for another size
+        }
+        seen[groupId].insert(name);
+
+        if (!byGroup.contains(groupId))
+        {
+            CompleteGroup group;
+            group.id = groupId;
+            group.name = groupLabels.value(groupId, groupId);
+            byGroup.insert(groupId, group);
+            order.append(groupId);
+        }
+        byGroup[groupId].members.append(name);
+
+        const bool memberKept = kept.contains(name) || kept.contains(Slug(name));
+        whole[groupId] = whole.value(groupId, true) && memberKept;
+    }
+
+    for (const QString &groupId : order)
+    {
+        if (whole.value(groupId, false) && byGroup.value(groupId).members.size() > 1)
+        {
+            out.append(byGroup.value(groupId));
+        }
+    }
+
+    return out;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                    const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
-                   QString *error, Material material) -> bool
+                   QString *error, Material material, const QSet<QString> &ungrouped) -> bool
 {
     out.clear();
 
@@ -1271,6 +1402,10 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // ⚠️ **Et c'est le seul endroit qui puisse le dire.** Le lecteur ne reçoit qu'une liste de pièces
     // cochées ; le groupe n'existe que par l'attribut `group` de ses membres, et sa composition est
     // dans le payload, pas dans la sélection.
+    //
+    // ⚠️ **Et le run peut répondre non.** Une dialog de la step 2 demande, groupe par groupe, si les
+    // pièces doivent rester superposées comme dans le PDF d'origine ; « No » dégroupe : le groupe
+    // n'emporte plus, et chacun de ses membres se dessine avec SES enfants, sur SA propre empreinte.
     QHash<QString, bool> groupWhole;
     for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
          !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
@@ -1278,6 +1413,11 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         const QString groupId = element.attribute(QStringLiteral("group"));
         if (groupId.isEmpty())
         {
+            continue;
+        }
+        if (ungrouped.contains(groupId))
+        {
+            groupWhole[groupId] = false;
             continue;
         }
 
@@ -1641,6 +1781,15 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 pose.footprint = pose.groupKey.isEmpty()
                                      ? name
                                      : QStringLiteral("g%1").arg(pose.groupKey);
+            }
+            // ⚠️ **Dégroupé, un membre est une pièce comme une autre** : son empreinte est la sienne,
+            // donc deux membres ne se posent plus ensemble. Sans cela « No » ne changerait que les
+            // enfants, et les deux pièces resteraient collées l'une sur l'autre sur la même
+            // empreinte — la moitié de la réponse.
+            if (!pose.groupKey.isEmpty() && ungrouped.contains(pose.groupKey))
+            {
+                pose.groupKey.clear();
+                pose.footprint = name;
             }
             pose.grainKnown = element.hasAttribute(QStringLiteral("grain"));
             pose.grain = element.attribute(QStringLiteral("grain")).toDouble();

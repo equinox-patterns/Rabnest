@@ -32,6 +32,7 @@
 #include <QRectF>
 #include <QString>
 #include <QHash>
+#include <QSet>
 #include <QStringList>
 #include <QVector>
 
@@ -218,10 +219,34 @@ public:
     ///               in the plan (those carrying a cut in that cloth) and HOW MANY poses each one
     ///               takes. A print passes nothing: `Cloth::AsDrawn` lays every piece once and the
     ///               material never comes into it.
+    /// @param ungrouped  the groups to treat as NO group: their members become ordinary pieces —
+    ///                   each with its own drawing and its own footprint, laid apart. A print asks,
+    ///                   once, for every group the user kept whole (@ref CompleteGroups); a plan of
+    ///                   cut never groups and never asks.
     static bool Load(const ImportedDocument &document, const QStringList &sizeIds,
                      const QStringList &pieceNames, Cloth cloth, QVector<CutSize> &out,
-                     QString *error, Material material = Material::Fabric);
+                     QString *error, Material material = Material::Fabric,
+                     const QSet<QString> &ungrouped = QSet<QString>());
 };
+
+/// One group the user kept WHOLE — every member the payload names for it is in @p pieceNames.
+///
+/// **A group is a single block in the source PDF**: its members are superimposed there, and the
+/// drawing it carries is the group's own. A print reproduces that, unless the user asks otherwise,
+/// which is why the question is asked group by group and not on the whole run.
+struct CompleteGroup
+{
+    QString id;            ///< the payload's `group` attribute, which is what the poses carry
+    QString name;          ///< what a human reads: the group's own name, else its id
+    QStringList members;   ///< the pieces it is made of, in the payload's order
+
+    /// The sentence a dialogue shows: « Pieces A + B make up group C. »
+    auto MembersPhrase() const -> QString;
+};
+
+/// Every group of @p document whose members are ALL in @p pieceNames, in the payload's order.
+auto CompleteGroups(const ImportedDocument &document, const QStringList &pieceNames)
+    -> QVector<CompleteGroup>;
 
 /// The size the payload names as its REFERENCE — `<pieces reference="Taille 32">` — as a layer id.
 ///
