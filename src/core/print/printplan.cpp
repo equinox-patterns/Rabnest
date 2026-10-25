@@ -307,7 +307,15 @@ auto PrintPlan::Generate(const ImportedDocument &document, const QStringList &si
             drawn.onFold = pose.onFold;
             drawn.foldA = pose.foldA;
             drawn.foldB = pose.foldB;
-            drawn.decor = DecorFor(size.decor, pose);
+            // ⚠️ **Un seul décor, sur la référence — comme Graded.** Graded ne dessine les enfants
+            // que sur sa couche de référence ; les autres couches ne portent que le contour. Dessiner
+            // le décor de chaque taille superposait donc huit décors, chacun à la position de sa
+            // taille : c'est ce qui rendait l'impression illisible dès qu'ils ont cessé d'être
+            // identiques.
+            if (layer.reference)
+            {
+                drawn.decor = DecorFor(size.decor, pose);
+            }
             layer.pieces.append(drawn);
         }
 

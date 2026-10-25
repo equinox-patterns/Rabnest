@@ -763,26 +763,38 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         return false;
     }
 
-    // **Version 4 : chaque membre d'un groupe porte ses propres enfants.** Le `<group>` porte en plus
-    // le jeu commun, et c'est la sélection qui décide lequel s'affiche (voir `groupWhole` plus bas).
+    // **Version 5 : le décor appartient à UNE taille.** Chaque `<piece>` porte les enfants de SA
+    // taille, tels que Graded les a construits pour elle — c'est ce qui fait que le décor ne dérive
+    // plus d'une taille à l'autre. La 4 donnait à chaque membre d'un groupe ses propres enfants, mais
+    // recopiait le décor d'une seule taille dans toutes les autres ; la 3 les lui refusait.
     //
-    // La 3 reste lisible — elle dit la même chose SANS les enfants des membres, donc chaque membre
-    // retombe sur le décor du groupe, exactement le comportement d'avant. La 2 n'a ni le contour
-    // dessiné ni l'offset d'alignement : un lecteur ne pourrait superposer ses tailles qu'en devinant
-    // un décalage qu'il n'a jamais reçu, et dessinerait des pièces sans crans. La 1 n'a aucun décor.
-    // Lire la version la plus proche serait pire que refuser : le plan poserait dix pièces et pas une
-    // ligne de droit-fil, sans le dire. **Un lecteur qui ne trouve pas ce qu'on lui demande le dit.**
+    // La 4 et la 3 restent lisibles : leur bloc est celui de la référence, et c'est l'ancrage au pli
+    // qui les rattrape tant bien que mal — voir plus bas, où `decorPerSize` décide.
+    //
+    // La 2 n'a ni le contour dessiné ni l'offset d'alignement : un lecteur ne pourrait superposer ses
+    // tailles qu'en devinant un décalage qu'il n'a jamais reçu, et dessinerait des pièces sans crans.
+    // La 1 n'a aucun décor. Lire la version la plus proche serait pire que refuser : le plan poserait
+    // dix pièces et pas une ligne de droit-fil, sans le dire. **Un lecteur qui ne trouve pas ce qu'on
+    // lui demande le dit.**
     const QString payloadVersion = pieces.attribute(QStringLiteral("version"));
-    if (payloadVersion != QLatin1String("3") && payloadVersion != QLatin1String("4"))
+    if (payloadVersion != QLatin1String("3") && payloadVersion != QLatin1String("4")
+        && payloadVersion != QLatin1String("5"))
     {
         if (error != nullptr)
         {
-            *error = QObject::tr("This PDF was exported by an older Ostara: it does not carry the "
-                                 "drawn contour of its pieces, nor the offset that lines their sizes "
-                                 "up. Export it again.");
+            *error = QObject::tr("This PDF was exported by a version of Ostara this Rabnest does not "
+                                 "know (payload version %1): it carries neither the drawn contour of "
+                                 "its pieces nor the offset that lines their sizes up. Export it "
+                                 "again.")
+                         .arg(payloadVersion.isEmpty() ? QStringLiteral("none") : payloadVersion);
         }
         return false;
     }
+
+    // Le décor est-il écrit PAR TAILLE (5) ou recopié de la référence dans chaque `<piece>` (3 et 4) ?
+    // C'est toute la différence : au-dessus de 4, un bloc est déjà à sa place et le décaler une
+    // seconde fois le déplace pour de bon ; en dessous, il faut l'ancrer.
+    const bool decorPerSize = payloadVersion == QLatin1String("5");
 
     QHash<QString, QString> labelById;
     for (const ImportedLayer &layer : document.layers())
@@ -794,11 +806,14 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
 
     // ── Le décor ────────────────────────────────────────────────────────────────────────────────
     //
-    // Read from the PAYLOAD, and never from the drawing again. Ostara copies each owner's children
-    // into EVERY size's record — the same ink, the same coordinates, resolved once — so a plan of
-    // size 40 finds the children of 40 where they were drawn, in the piece's own frame, and places
-    // them with the piece. Nothing is measured, shifted or anchored here: the payload states a
-    // position, and Rabnest uses it.
+    // Read from the PAYLOAD, and never from the drawing again. **Depuis la version 5, chaque
+    // `<piece>` porte le décor de SA taille** — Graded construit les enfants de chaque pièce à la
+    // taille de sa couche, et le payload le dit tel quel : un plan de coupe de la taille 46 trouve
+    // les enfants de 46 là où le dessin les a posés, dans le repère de son `outline`, et n'a qu'à
+    // les poser avec la pièce. Rien n'est mesuré, décalé ni ancré : le payload énonce une position.
+    //
+    // Avant la 5, le même bloc était recopié de la référence dans toutes les `<piece>`, et c'est
+    // l'ancrage (plus bas) qui tentait de le rattraper — d'où le drapeau `decorPerSize`.
     //
     // A grouped member carries none of its own — Graded and Details both hand its decor to the group
     // — so the group's block is read first and stands in for every member that lacks one.
@@ -809,18 +824,23 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
 
     // One plan per size, as Ostara does it: a cutting plan is laid for one size, and asking for
     // three gives three plans, not one plan over three sizes.
-    // The reference size — the first the payload writes, which is the smallest of the range, and
-    // the only one whose decor the drawing resolved. Read here, before anything is filtered out: a
-    // piece the run does not keep still names its layer.
-    QString referenceLabel;
-    for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
-         element = element.nextSiblingElement(QStringLiteral("piece")))
+    //
+    // The reference size — **the one the payload NAMES** since version 5 (`<pieces reference="…">`),
+    // and the first `<piece>` written before that, which is the smallest of the range. It is the size
+    // whose drawing carries the one cartouche of a print; read here, before anything is filtered out,
+    // because a piece the run does not keep still names its layer.
+    QString referenceLabel = pieces.attribute(QStringLiteral("reference"));
+    if (referenceLabel.isEmpty())
     {
-        const QString pieceSize = element.attribute(QStringLiteral("size"));
-        if (!pieceSize.isEmpty())
+        for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
+             !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
         {
-            referenceLabel = pieceSize;
-            break;
+            const QString pieceSize = element.attribute(QStringLiteral("size"));
+            if (!pieceSize.isEmpty())
+            {
+                referenceLabel = pieceSize;
+                break;
+            }
         }
     }
 
@@ -831,75 +851,6 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // donc pas être celui de la taille demandée : à la plus grande taille, où cet écart vaut zéro, le
     // contenu partait vers la droite de tout ce que la référence, elle, portait.
     QHash<QString, QPointF> referenceAlignDelta;
-    // Le coin haut-gauche de la forme POSÉE, sans l'écart d'alignement. C'est le repère auquel le
-    // décor d'une pièce est accroché : il est dessiné contre les bords de sa pièce, pas dans un repère
-    // absolu. Les tailles ne se superposant pas, ce coin s'en va d'une taille à l'autre — et c'est
-    // exactement ce que le décor doit suivre pour rester à la même distance du bord.
-    QHash<QString, QPointF> referenceFold;
-    const auto laidCorner = [cloth](const QDomElement &element) -> QPointF
-    {
-        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
-        const bool storedFolded =
-            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
-        const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
-                                        || (cloth == Cloth::Folded) == storedFolded;
-        const QVector<QPointF> outline =
-            Outline(element.attribute(storedIsTheOneLaid ? QStringLiteral("outline")
-                                                         : QStringLiteral("outlineAlt")));
-        if (outline.isEmpty())
-        {
-            return QPointF();
-        }
-        double x = outline.first().x();
-        double y = outline.first().y();
-        for (const QPointF &point : outline)
-        {
-            x = std::min(x, point.x());
-            y = std::min(y, point.y());
-        }
-        return QPointF(x, y);
-    };
-    const auto laidBottom = [cloth](const QDomElement &element) -> qreal
-    {
-        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
-        const bool storedFolded =
-            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
-        const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
-                                        || (cloth == Cloth::Folded) == storedFolded;
-        const QVector<QPointF> outline =
-            Outline(element.attribute(storedIsTheOneLaid ? QStringLiteral("outline")
-                                                         : QStringLiteral("outlineAlt")));
-        if (outline.isEmpty())
-        {
-            return qQNaN();
-        }
-        qreal bottom = outline.first().y();
-        for (const QPointF &point : outline)
-        {
-            bottom = std::max(bottom, point.y());
-        }
-        return bottom;
-    };
-
-    // ⚠️ **Le décor d'une pièce à pli est accroché au PLI, pas au coin de sa boîte.** Une pièce
-    // dépliée s'élargit de chaque côté de son pli : le coin s'en va de 194 px entre la 32 et la 46
-    // quand le pli, lui, s'en va de 529. Ancrer au coin laissait donc le cartouche glisser le long du
-    // bord ; c'est le pli qui est le repère, parce que c'est là que la pièce est coupée.
-    const auto FoldAnchor = [](const QDomElement &element) -> QPointF
-    {
-        const QVector<double> axis = Numbers(element.attribute(QStringLiteral("foldAxis")));
-        if (axis.size() < 4)
-        {
-            return QPointF(qQNaN(), qQNaN());
-        }
-        const bool onFold = element.attribute(QStringLiteral("onFold")) == QLatin1String("yes");
-        const bool storedFolded =
-            element.attribute(QStringLiteral("stored")) == QLatin1String("folded");
-        Q_UNUSED(onFold)
-        Q_UNUSED(storedFolded)
-        return QPointF((axis.at(0) + axis.at(2)) / 2.0, 0.0);
-    };
-
     for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
          element = element.nextSiblingElement(QStringLiteral("piece")))
     {
@@ -912,15 +863,6 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         if (shift.size() >= 2)
         {
             referenceAlignDelta.insert(name, QPointF(shift.at(0), shift.at(1)));
-        }
-        if (!Outline(element.attribute(QStringLiteral("outline"))).isEmpty()
-            || !Outline(element.attribute(QStringLiteral("outlineAlt"))).isEmpty())
-        {
-            const QPointF fold = FoldAnchor(element);
-            if (!qIsNaN(fold.x()))
-            {
-                referenceFold.insert(name, QPointF(fold.x(), laidBottom(element)));
-            }
         }
     }
 
@@ -1224,15 +1166,18 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     // mesuré jusqu'à 227 px en x et 42 px en y selon la pièce. Le corriger demande un
                     // décor **par taille**, écrit par Ostara (§13) : aucun ancrage ne peut le deviner
                     // ici.
+                    //
+                    // ⚠️ **Et depuis la version 5, Ostara l'écrit.** Le bloc est alors DÉJÀ à la place
+                    // de sa taille, dans le même repère que son `outline` : il ne prend que l'écart
+                    // d'alignement, comme le contour, et l'ancrage au pli ci-dessous le SUR-décalerait
+                    // d'exactement la croissance de la pièce. Il ne vaut donc que pour la 4 et avant.
+                    // ⚠️ **Et l'ancrage au pli a été retiré : il compensait un écart qui n'existe
+                    // pas.** Il ajoutait `pli(de cette taille) − pli(référence)` PAR-DESSUS l'écart
+                    // d'alignement, alors que celui-ci contient déjà la croissance : mesuré sur
+                    // « Devant x1 pli », il produisait 529,12 à la taille 46 là où le décalage correct
+                    // est 0 — et il ne retombait juste qu'à la référence, où il redonne alignDelta par
+                    // construction. C'est ce qui lui donnait l'air de marcher.
                     QPointF decorShiftHere = alignDelta + decorShift;
-                    const QPointF foldNow = FoldAnchor(element);
-                    if (referenceFold.contains(name) && !qIsNaN(foldNow.x()))
-                    {
-                        const QPointF ref = referenceFold.value(name);
-                        decorShiftHere.setX(decorShift.x() + foldNow.x() + alignDelta.x() - ref.x());
-                        decorShiftHere.setY(decorShift.y() + laidBottom(element) + alignDelta.y()
-                                            - ref.y());
-                    }
                     if (!decorShiftHere.isNull())
                     {
                         one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
@@ -1350,7 +1295,12 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     // Son dessin est le décor de la référence retourné une fois pour toutes ; le
                     // poser avec l'écart de la taille demandée le déplaçait de la différence — nulle
                     // à la référence, et de plus en plus grande au-dessus, vers la droite.
-                    const QPointF twinShift = referenceAlignDelta.value(name, alignDelta) + decorShift;
+                    //
+                    // ⚠️ **Et depuis la version 5, son dessin est celui de SA taille** : il prend donc
+                    // l'écart de sa taille, exactement comme le bloc dont il est le miroir.
+                    const QPointF twinShift =
+                        (decorPerSize ? alignDelta : referenceAlignDelta.value(name, alignDelta))
+                        + decorShift;
                     if (ReadMirroredDecor(decorSource, twinShift, axisX, &mirroredOne))
                     {
                         size.decor.insert(twin.key, mirroredOne);
