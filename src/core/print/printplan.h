@@ -147,6 +147,13 @@ struct PrintPlan
     /// the same.
     bool plainOutline = false;
 
+    /// **Ce plan est une PROJECTION**, et son trait est celui du format, pas celui du patron.
+    ///
+    /// Décidé ici, une fois, pour que le canevas et le fichier ne puissent pas diverger : les coupons
+    /// en noir plein à 7 pt, le droit-fil à 5,25, le pli à 4. Un trait appliqué seulement à l'écriture
+    /// laisserait l'écran montrer le trait du patron, et c'est exactement ce qui se voyait.
+    bool projector = false;
+
     /// How long the laying out took, in seconds, measured around the engine. The figure the user
     /// reads is the time HER plan cost, so it travels inside the plan rather than being counted by
     /// whoever happened to call it.
@@ -173,6 +180,15 @@ struct PrintPlan
     Footprint::Result footprint;
     QVector<QPointF> origins;
 
+    /// Les rotations que le moteur a le droit d'essayer, par clé d'empreinte — **vide pour un print**,
+    /// qui laisse au moteur son balayage entier.
+    ///
+    /// Une projection ÉPINGLE le droit-fil (`grainPinned`) : sans cela le moteur essaie toutes les
+    /// rotations sur chaque pièce, et une page de cent trente pièces coûte des minutes au lieu de
+    /// secondes. C'est la règle d'Ostara, et c'est aussi ce qui fait qu'un plan projeté se lit dans
+    /// le sens du tissu.
+    QHash<QString, std::vector<double>> angles;
+
     /// The rectangle the cover page reserves, when its seat is InSheet — kept so that the sheets
     /// can be read again after a hand has moved a piece.
     QRectF reservedPx;
@@ -185,6 +201,13 @@ struct PrintPlan
     /// counts it, and the command-line tool prints it. Three readings of « how many sheets does this
     /// run take » would be three answers waiting to disagree.
     auto Pages(bool coverHasItsOwnSheet) const -> int;
+
+    /// Le cadre serré de ce que le plan occupe, en pixels — la page qu'une projection mesure.
+    ///
+    /// **La même arithmétique que le dessin et que le tuilage** : `(x, y) + R(rotation) · (p − origin)`,
+    /// lue sur les empreintes placées. Une projection s'en sert pour remplacer son bac par sa page ;
+    /// une seconde écriture de cette transformation ferait deux réponses à « où est la pièce ».
+    auto InkBounds() const -> QRectF;
 
     /// Reads the sheets again from where the pieces ARE.
     ///
@@ -210,13 +233,25 @@ struct PrintPlan
     /// @param ungrouped  the groups the user chose NOT to keep superimposed — see @ref CompleteGroup.
     ///                   Each of their members is then an ordinary piece: its own drawing, its own
     ///                   footprint, laid apart. Empty means « keep every group as the file has it ».
+    /// @param cloth    what the run does with a piece cut on the fold — @see Cloth. A print passes
+    ///                 @ref Cloth::AsDrawn; a projection passes @ref Cloth::Flat, because it shows the
+    ///                 pieces the way they are CUT, unfolded at the fold.
+    /// @param perInstance  one footprint per POSE instead of one per piece — what a projection lays
+    ///                 out, since a piece cut twice is two pieces to project. A print groups the
+    ///                 poses of one piece under one name, which is what makes a graded plan graded.
+    /// @param centred  centre the sizes of a piece on each other instead of keeping the payload's own
+    ///                 alignment — what a projection forces (`Projector.md` §6.1). A print never
+    ///                 does: the pattern's alignment is the drawing the document has.
     static PrintPlan Generate(const ImportedDocument &document, const QStringList &sizeIds,
                               const QStringList &pieceNames, double marginCm, double gapCm,
                               double binWidthPx, int columns, double sheetHeightMm,
                               const QRectF &coverBlockPx = QRectF(),
                               const QString &modelToken = QString(),
                               bool plainOutline = false,
-                              const QSet<QString> &ungrouped = QSet<QString>());
+                              const QSet<QString> &ungrouped = QSet<QString>(),
+                              Cloth cloth = Cloth::AsDrawn, bool perInstance = false,
+                              bool centred = false, bool grainPinned = false,
+                              bool projector = false);
 };
 
 #endif // PRINTPLAN_H

@@ -37,6 +37,7 @@
 
 class QCheckBox;
 class QFormLayout;
+class QGroupBox;
 class QTabWidget;
 class PrintPanel;
 class QDoubleSpinBox;
@@ -67,23 +68,47 @@ public:
     /// What the page currently says about the cloth.
     CutPlanRequest Request() const;
 
+    /// Ce que le PDF d'où vient le document EST — une projection, ou autre chose.
+    ///
+    /// **Ce n'est pas de la décoration.** Le cartouche d'une pièce est un DESSIN : ses mots sont des
+    /// contours, donc Rabnest ne peut pas changer « Cut 2 » en « Cut 1 » — il ne saurait même pas où
+    /// est le chiffre. Le nombre de coupes écrit sur la page est celui du format d'où le PDF vient, et
+    /// la seule chose honnête est de le dire là où il ne correspond pas au run demandé.
+    void SetDocumentKind(bool projector);
+
     /// Says why a plan could not be laid out, under the list.
     void ShowError(const QString &message);
     void ClearError();
 
-    /// Which generation the button will make: the cutting plan, the print, or — one day — the
-    /// plotter. The tabs are the user's choice, and the button above them obeys it.
+    /// Which generation the button will make: the cutting plan, the print, or the projection.
+    /// The tabs are the user's choice, and the button above them obeys it.
+    ///
+    /// ⚠️ **`Projector` remplace le `Plotter`**, qui n'a jamais existé : le plan pour plotter
+    /// domestique ne sera pas porté dans Rabnest, et sa place est prise par la projection.
     enum class Tab
     {
         Cutting,
         Print,
-        Plotter
+        Projector
     };
 
     auto ActiveTab() const -> Tab;
 
     /// The print settings of this run, when the Print tab is the one being generated.
     auto PrintSettings() const -> PrintPanel *;
+
+    /// Les deux écarts d'une projection, en centimètres : celui du bord, et celui entre deux pièces.
+    ///
+    /// **Pas de laize, pas de matière, pas de page de garde** — une projection n'a aucun des trois :
+    /// sa page est celle que la recherche trouve, et le tissu n'existe pas. Ce qui reste à décider est
+    /// donc ce qui se mesure sur la page, et rien d'autre.
+    struct ProjectorSettings
+    {
+        double marginCm = 0.0;
+        double gapCm = 10.0;
+    };
+
+    auto Projector() const -> ProjectorSettings;
 
     /// Whether this run also lays out the **lining** — the second plan of a pair.
     ///
@@ -138,6 +163,17 @@ private:
 
     QTabWidget *m_tabs = nullptr;
     PrintPanel *m_print = nullptr;
+    QDoubleSpinBox *m_projectorMargin = nullptr;
+    QDoubleSpinBox *m_projectorGap = nullptr;
+
+    /// Les deux avertissements de format, chacun dans sa boîte : celui de l'onglet Projecteur quand
+    /// le PDF n'a pas été exporté pour une projection, celui de l'onglet Print quand il l'a été.
+    ///
+    /// **Une boîte et du gras, parce que c'est une chose qu'on ne doit pas manquer.** Le cartouche
+    /// d'une pièce est un dessin : son chiffre de coupe ne se réécrit pas, et un lecteur qui ne voit
+    /// pas l'avertissement croit le plan faux alors qu'il est seulement d'un autre format.
+    QGroupBox *m_projectorSourceBox = nullptr;
+    QGroupBox *m_printSourceBox = nullptr;
 };
 
 #endif  // CUTPLANPAGE_H

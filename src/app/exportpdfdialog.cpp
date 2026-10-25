@@ -39,10 +39,11 @@
 #include <QVBoxLayout>
 
 //---------------------------------------------------------------------------------------------------------------------
-ExportPdfDialog::ExportPdfDialog(const QString &fileName, const QString &directory, QWidget *parent)
+ExportPdfDialog::ExportPdfDialog(const QString &fileName, const QString &directory, QWidget *parent,
+                                 const QString &title)
     : QDialog(parent)
 {
-    setWindowTitle(tr("Export the print as PDF"));
+    setWindowTitle(title.isEmpty() ? tr("Export the print as PDF") : title);
 
     // **A name worth reading is a name worth showing whole.** The proposed name states the sizes and
     // the paper — « Taille 32 to Taille 36 - A0 Roll » — and a field narrower than it would open with

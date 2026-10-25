@@ -49,6 +49,10 @@ struct PrintInfo
     /// The format's label, as the print panel names it — « A4/Letter framed », « A0 Roll ».
     QString format;
 
+    /// Le nom de la ligne qui porte @ref format. Vide : « Print model ». Une projection n'a pas de
+    /// modèle de papier, et lire « Print model : Projection » serait une question sans réponse.
+    QString formatLabel;
+
     /// Sheets side by side. Shown for every format but the roll and the A0 sheet, which are one
     /// column wide by definition.
     int columns = 1;

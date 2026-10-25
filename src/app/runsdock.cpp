@@ -126,9 +126,18 @@ auto MakeIconButton(const QString &baseName, const QString &text, QWidget *paren
 /// answers, and both are called « Taille 46 - Cut » — that is deliberate: the dock is a list of
 /// what she ASKED FOR, and what differs between them is a setting, which is exactly what the
 /// information dialogue exists to show.
-auto RunsDock::Name(const CutPlan &plan, bool isPrint) -> QString
+auto RunsDock::Name(const CutPlan &plan, Kind kind) -> QString
 {
-    return isPrint ? plan.sizeLabel : QObject::tr("%1 - Cut").arg(plan.sizeLabel);
+    switch (kind)
+    {
+        case Kind::Print:
+            return plan.sizeLabel;
+        case Kind::Projector:
+            return QObject::tr("%1 - Projection").arg(plan.sizeLabel);
+        case Kind::Plan:
+        default:
+            return QObject::tr("%1 - Cut").arg(plan.sizeLabel);
+    }
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -273,15 +282,15 @@ void RunsDock::BuildUi()
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void RunsDock::AddRun(const CutPlan &plan, bool isPrint)
+void RunsDock::AddRun(const CutPlan &plan, Kind kind)
 {
     const int row = m_table->rowCount();
     m_table->insertRow(row);
     m_table->setRowHeight(row, kRowHeight);
 
-    auto *name = new QTableWidgetItem(RunsDock::Name(plan, isPrint));
+    auto *name = new QTableWidgetItem(RunsDock::Name(plan, kind));
     name->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-    name->setToolTip(plan.ok ? RunsDock::Name(plan, isPrint) : plan.error);
+    name->setToolTip(plan.ok ? RunsDock::Name(plan, kind) : plan.error);
     m_table->setItem(row, kName, name);
 
     struct Action
@@ -298,11 +307,16 @@ void RunsDock::AddRun(const CutPlan &plan, bool isPrint)
         // A print run is not an image: it leaves as a PDF with one layer per size and one page per
         // sheet, and the tooltip is where that is said before anything is pressed.
         {kExport, QStringLiteral("download"),
-         isPrint ? tr("Export this print as PDF") : tr("Export this plan as an image")},
+         kind == Kind::Projector
+             ? tr("Export this projection as PDF")
+             : (kind == Kind::Print ? tr("Export this print as PDF")
+                                    : tr("Export this plan as an image"))},
         // A cutting plan prints as one sheet the plan is shrunk onto; a print run prints as its own
         // sheets, at their size. Two gestures, two sentences.
         {kPrint, QStringLiteral("printer"),
-         isPrint ? tr("Print these sheets") : tr("Print this plan")},
+         kind == Kind::Projector
+             ? tr("Print this projection")
+             : (kind == Kind::Print ? tr("Print these sheets") : tr("Print this plan"))},
         {kDelete, QStringLiteral("trash"), tr("Delete")}};
 
     for (const Action &action : actions)

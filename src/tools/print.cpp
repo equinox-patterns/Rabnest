@@ -30,6 +30,7 @@
 #include "core/print/printplan.h"
 #include "core/print/printpdf.h"
 #include "core/print/printrecipe.h"
+#include "core/projector.h"
 #include "app/print/exportmarkpainter.h"
 #include "app/print/printpanel.h"
 
@@ -81,6 +82,8 @@ int main(int argc, char *argv[])
     QString moveSpec;
     QString svgPath;
     QString sizesSpec;
+    QString projectorSpec;
+    QString pdfPath;
     for (const QString &argument : arguments)
     {
         if (argument.startsWith(QStringLiteral("--decor=")))
@@ -94,6 +97,14 @@ int main(int argc, char *argv[])
         else if (argument.startsWith(QStringLiteral("--sizes=")))
         {
             sizesSpec = argument.mid(8);
+        }
+        else if (argument.startsWith(QStringLiteral("--projector=")))
+        {
+            projectorSpec = argument.mid(12);
+        }
+        else if (argument.startsWith(QStringLiteral("--pdf=")))
+        {
+            pdfPath = argument.mid(6);
         }
         else if (argument.startsWith(QStringLiteral("--grid=")))
         {
@@ -149,6 +160,72 @@ int main(int argc, char *argv[])
         << " gap=" << recipe.format.gapMm << "mm"
         << " decor=" << (recipe.hasDecor ? recipe.decor.name : QStringLiteral("none"))
         << " cover=" << recipe.coverSvg.size() << "B\n";
+
+    // ── La projection ───────────────────────────────────────────────────────────────────────────
+    //
+    // `--projector=<ecart au bord cm>,<ecart entre pièces cm>` porte la recherche de largeur et écrit
+    // le PDF d'une projection : une page, ses trois calques sous les pièces, et sa charge utile. Sans
+    // écran, c'est le seul moyen de vérifier le format — la page, les calques, la destination.
+    if (!projectorSpec.isEmpty())
+    {
+        const QStringList parts = projectorSpec.split(QLatin1Char(','));
+        Projector::Limits limits;
+        const double marginCm = parts.value(0).toDouble();
+        if (parts.size() > 1)
+        {
+            limits.gapCm = parts.at(1).toDouble();
+        }
+        if (parts.size() > 2)
+        {
+            limits.onlyWidthMm = parts.at(2).toInt();
+        }
+
+        QStringList sizeIds;
+        for (const ImportedLayer &layer : document.layers())
+        {
+            sizeIds.append(layer.id);
+        }
+
+        const QStringList pieces = document.Pieces(sizeIds);
+        const Projector::Outcome outcome =
+            Projector::Nest(document, sizeIds, pieces, marginCm, limits);
+
+        if (!outcome.ok)
+        {
+            out << "REFUSED: " << outcome.error << "\n";
+            return 1;
+        }
+
+        out << "projector: page=" << PrintMetrics::PxToMm(outcome.plan.binWidthPx) << " x "
+            << PrintMetrics::PxToMm(outcome.plan.usedHeightPx) << "mm"
+            << " width=" << outcome.widthMm << "mm"
+            << " gap=" << outcome.gapCm << "cm"
+            << " placements=" << outcome.plan.placements.size()
+            << " layers=" << outcome.plan.layers.size()
+            << " attempts=" << outcome.attempts
+            << " seconds=" << QString::number(outcome.seconds, 'f', 1) << "\n";
+
+        PrintPdf::Job job;
+        job.payload = document.payload();
+        job.plan = outcome.plan;
+        job.projector = true;
+        job.overlays = Projector::Overlays();
+        job.sourcePath = arguments.at(1);
+        job.title = QStringLiteral("projector");
+
+        const QString path =
+            pdfPath.isEmpty() ? arguments.at(1) + QStringLiteral(".projector.pdf") : pdfPath;
+
+        QString error;
+        if (!PrintPdf::Write(job, path, &error))
+        {
+            out << "REFUSED: " << error << "\n";
+            return 1;
+        }
+
+        out << "written: " << path << "\n";
+        return 0;
+    }
 
     const ExportPrintModel *model = FindExportPrintModel(recipe.format.token);
     if (model == nullptr)

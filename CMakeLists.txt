@@ -110,6 +110,8 @@ add_executable(Rabnest MACOSX_BUNDLE
     src/core/print/printplan.h
     src/core/print/printrecipe.cpp
     src/core/print/printrecipe.h
+    src/core/projector.cpp
+    src/core/projector.h
     src/ui/GroupOverlapDialog.cpp
     src/ui/GroupOverlapDialog.h
     src/ui/NestingDialog.cpp
@@ -178,6 +180,8 @@ add_executable(rabnest_print
     src/core/print/printplan.cpp
     src/core/print/printpdf.cpp
     src/core/print/printrecipe.cpp
+    src/core/projector.cpp
+    src/core/projector.h
     share/rabnest.qrc
 )
 target_include_directories(rabnest_print PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

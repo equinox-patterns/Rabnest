@@ -57,17 +57,28 @@ public:
     /// What an output is called: its size, and the kind of plan it is. Named once for the whole
     /// application — the dock shows it, and an exported file carries it.
     ///
-    /// @param isPrint  true for a print run. A print is not « cut » and does not say so: its name
-    ///                 already states what it covers — its sizes and its paper — and a kind tagged
-    ///                 onto that is a word nobody needs. A cutting plan keeps the tag, because two
-    ///                 plans of one size are two answers and only the kind tells them apart.
-    static auto Name(const CutPlan &plan, bool isPrint = false) -> QString;
+    /// What a row IS — the three generations Rabnest knows how to make from one PDF.
+    ///
+    /// **Le genre n'est pas une étiquette : c'est ce que les icônes font.** Un plan part en image,
+    /// un print en PDF à calques, une projection en PDF à une page : trois fichiers, trois gestes,
+    /// et une ligne du dock ne peut pas les confondre.
+    enum class Kind
+    {
+        Plan,
+        Print,
+        Projector
+    };
+
+    /// @param kind  what the row is. A print is not « cut » and does not say so: its name already
+    ///              states what it covers — its sizes and its paper — and a kind tagged onto that is
+    ///              a word nobody needs. A cutting plan keeps the tag, because two plans of one size
+    ///              are two answers and only the kind tells them apart.
+    static auto Name(const CutPlan &plan, Kind kind = Kind::Plan) -> QString;
 
     /// Adds a plan and selects it — the selection is what puts it on the canvas.
     ///
-    /// @param isPrint  true for a print run. The row looks the same, but what its icons DO is not:
-    ///                 a plan is delivered as an image of the drawing, a print as a layered PDF.
-    void AddRun(const CutPlan &plan, bool isPrint = false);
+    /// @param kind  the row looks the same whatever it is, but what its icons DO is not.
+    void AddRun(const CutPlan &plan, Kind kind = Kind::Plan);
 
     /// The row the user is on, or -1 when none is — what the canvas is showing.
     auto CurrentRow() const -> int;

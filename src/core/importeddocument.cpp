@@ -239,19 +239,17 @@ void ImportedDocument::ParsePayload()
         }
     }
 
-    // ── Une projection ne se nidifie pas ici ────────────────────────────────────────────────────
+    // ── Une projection se relit comme une impression ─────────────────────────────────────────────
     //
-    // ⚠️ **Le refus est posé ICI, et pas dans une page de l'interface.** Un document se lit par
-    // plusieurs chemins — la fenêtre, la ligne de commande, le banc d'essai — et une règle qui ne
-    // vit que dans l'un laisse les autres produire un plan faux qui a l'air juste : un PDF
-    // projecteur re-nidifié en écart zéro et en tuilé. Un document refusé est refusé partout, et
-    // `error()` dit pourquoi.
-    if (m_projector)
-    {
-        m_error = QStringLiteral("This PDF was exported for a projector: it is a 1:1 projection, on "
-                                 "a single page, and it cannot be nested again here.\n\n"
-                                 "Open it in a PDF viewer to project it.");
-    }
+    // ⚠️ **Elle était REFUSÉE ici, et c'était faux.** La charge utile d'une projection ne manque de
+    // rien : `<pieces>` porte les tailles, les contours, l'encre, le décor, les quantités de coupe et
+    // la référence ; les calques de fond et de grille sont écartés plus bas par leur rôle ; et sa
+    // recette se lit comme un rouleau (`frameHeightMm` à zéro), un cas que le print sait déjà faire.
+    // Le seul mot qui la disait incompatible était celui qu'on écrivait ici.
+    //
+    // ⚠️ **Le marqueur reste, et il reste LU.** Il dit ce que le fichier EST — une projection, une
+    // page à l'échelle 1 — et c'est une chose qu'aucun dessin ne redit. Le jour où une sortie doit
+    // se nommer d'après ce qu'elle a lu, c'est ici que ça se saura.
     for (QDomElement layer = root.firstChildElement(); !layer.isNull();
          layer = layer.nextSiblingElement())
     {

@@ -122,6 +122,25 @@ private:
     /// and the map is what says which.
     QHash<int, PrintOutput> m_printOutputs;
 
+    /// L'onglet Projecteur a généré : la recherche de largeur, sa ligne, et son canevas.
+    void GenerateProjector(const QStringList &sizeIds, double marginCm, double gapCm);
+
+    /// Une projection, gardée pour être écrite : son plan, et le PDF dont elle vient.
+    struct ProjectorOutput
+    {
+        PrintPlan plan;
+
+        /// Le PDF d'où la projection a été tirée — c'est lui qui porte la charge utile à réécrire,
+        /// et il survit à l'import qui l'a lu.
+        QString sourcePath;
+    };
+
+    /// Les projections, par la ligne qui les présente.
+    QHash<int, ProjectorOutput> m_projectorOutputs;
+
+    /// Le PDF de la projection : une page, ses trois calques sous les pièces, et sa charge utile.
+    void ExportProjectorOutput(int index);
+
     /// Re-lays the print run with what the panel says, and redraws the canvas. Called on every
     /// change, because a print setting IS a nesting setting: the column count makes the document's
     /// width, and the margin and the gap go straight into the engine.

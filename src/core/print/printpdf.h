@@ -30,6 +30,8 @@
 #include "core/print/exporttemplate.h"
 #include "core/print/printplan.h"
 
+#include "io/GradedOverlays.h"  // Trame — les calques d'une projection
+
 #include <QByteArray>
 #include <QRectF>
 #include <QString>
@@ -91,6 +93,18 @@ struct Job
 
     /// What the reader shows in its information panel — this delivery's name.
     QString title;
+
+    /// **Une projection n'est pas une impression, et le fichier doit le dire.**
+    ///
+    /// Trois choses en découlent : le document est TOUJOURS calqué (les trois calques du dessous sont
+    /// trois choses que l'utilisatrice doit pouvoir éteindre), ses pièces sont écrites au trait du
+    /// format — noir, plein, 7 pt — et sa recette porte `destination="projector"`, sans quoi le
+    /// fichier se relirait comme une impression.
+    bool projector = false;
+
+    /// Les calques d'une projection : le fond et les grilles, écrits SOUS les pièces. Vides pour
+    /// une impression, qui n'a rien à mettre dessous.
+    GradedOverlays::Set overlays;
 };
 
 /// The rectangles the PDF's pages are, in the plan's own pixels.

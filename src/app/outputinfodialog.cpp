@@ -213,7 +213,8 @@ OutputInfoDialog::OutputInfoDialog(const PrintInfo &print, QWidget *parent) : QD
     // that does not exist.
     auto *asked = new QGroupBox(tr("What this output was asked for"), this);
     auto *askedForm = new QFormLayout(asked);
-    AddRow(askedForm, tr("Print model"), print.format);
+    AddRow(askedForm, print.formatLabel.isEmpty() ? tr("Print model") : print.formatLabel,
+           print.format);
 
     // A roll — and the A0 sheet — is one column wide by definition: it has no count, so it gets no
     // line. A count that can only be one is a question with no answer in it.

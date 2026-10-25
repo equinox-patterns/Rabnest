@@ -49,7 +49,11 @@ class ExportPdfDialog : public QDialog
 public:
     /// @param fileName   the name proposed — the run's own, without its suffix
     /// @param directory  the folder proposed — the one the PDF was imported from
-    ExportPdfDialog(const QString &fileName, const QString &directory, QWidget *parent = nullptr);
+    /// @param title      ce que la fenêtre dit qu'on exporte. Vide : « Export the print as PDF ».
+    ///                   Une projection n'est pas un print, et la fenêtre ne doit pas le dire à sa
+    ///                   place — le dialogue est le même, le mot ne l'est pas.
+    ExportPdfDialog(const QString &fileName, const QString &directory, QWidget *parent = nullptr,
+                    const QString &title = QString());
 
     auto directory() const -> QString;
 

@@ -244,6 +244,10 @@ void ImportOverlay::ChooseFile(const QString &path)
         return;
     }
 
+    // Ce que le PDF EST, dit une fois : c'est lui qui décide l'avertissement de format des deux
+    // onglets (le cartouche est un dessin, ses mots ne se réécrivent pas).
+    m_cutPlan->SetDocumentKind(m_document.isProjector());
+
     if (m_document.kind() == ImportedDocument::Kind::Foreign)
     {
         if (m_document.layers().isEmpty())
@@ -343,6 +347,13 @@ void ImportOverlay::Generate()
                                 panel->Columns(), panel->MarginMm(), panel->GapMm(),
                                 panel->PlainOutline());
         }
+        return;
+    }
+
+    if (m_cutPlan->ActiveTab() == CutPlanPage::Tab::Projector)
+    {
+        const CutPlanPage::ProjectorSettings settings = m_cutPlan->Projector();
+        emit ProjectorRequested(m_cutPlan->CheckedSizeIds(), settings.marginCm, settings.gapCm);
         return;
     }
 

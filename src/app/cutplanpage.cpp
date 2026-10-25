@@ -30,6 +30,7 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
@@ -226,19 +227,105 @@ CutPlanPage::CutPlanPage(QWidget *parent)
 
     m_print = new PrintPanel(printPage);
     printLayout->addWidget(m_print);
+
+    // L'avertissement de FORMAT : le cartouche est un dessin, donc ses mots sont ceux du PDF d'où
+    // l'on vient. Il ne vaut que si ce PDF était une projection, et il se câble sur le document lu.
+    m_printSourceBox = new QGroupBox(tr("The format of this PDF"), printPage);
+    {
+        auto *box = new QVBoxLayout(m_printSourceBox);
+        auto *note = new QLabel(
+            tr("This PDF was exported as a Projector: the cut quantity written on each piece is the "
+               "projection's, and the words are drawn, so they cannot be rewritten here. To lay out "
+               "a print, generate it from a PDF exported in the Print format."),
+            m_printSourceBox);
+        note->setWordWrap(true);
+        QFont bold = note->font();
+        bold.setBold(true);
+        note->setFont(bold);
+        box->addWidget(note);
+    }
+    m_printSourceBox->hide();
+    printLayout->addWidget(m_printSourceBox);
+
     printLayout->addStretch(1);
 
     tabs->addTab(Scrollable(printPage, tabs), tr("Print"));
 
-    // ── Plotter ────────────────────────────────────────────────────────────────────────────────
-    auto *plotter = new QWidget(tabs);
-    auto *plotterLayout = new QVBoxLayout(plotter);
-    auto *soon = new QLabel(tr("Coming soon"), plotter);
-    soon->setAlignment(Qt::AlignCenter);
-    plotterLayout->addStretch(1);
-    plotterLayout->addWidget(soon);
-    plotterLayout->addStretch(1);
-    tabs->addTab(plotter, tr("Plotter"));
+    // ── Projecteur ─────────────────────────────────────────────────────────────────────────────
+    //
+    // **Le plan qu'on projette.** Une page, à l'échelle 1, aussi petite que les pièces le
+    // permettent et jamais plus de 500 × 500 cm. Il ne demande donc ni laize, ni matière, ni page de
+    // garde : ce qui se règle est ce qui se mesure sur la page, les deux écarts.
+    auto *projector = new QWidget(tabs);
+    auto *projectorLayout = new QVBoxLayout(projector);
+    projectorLayout->setContentsMargins(16, 12, 16, 12);
+    projectorLayout->setSpacing(8);
+
+    auto *projectorTitle = new QLabel(tr("The projection"), projector);
+    projectorTitle->setObjectName(QStringLiteral("stepTitle"));
+    projectorLayout->addWidget(projectorTitle);
+
+    auto *projectorSubtitle = new QLabel(
+        tr("The pieces you ticked are laid on one page, at their real size, so that the fabric can be "
+           "cut under the projection. The page is as small as the pieces allow, and the width is "
+           "searched: you do not give one."),
+        projector);
+    projectorSubtitle->setObjectName(QStringLiteral("stepSubtitle"));
+    projectorSubtitle->setWordWrap(true);
+    projectorLayout->addWidget(projectorSubtitle);
+    projectorLayout->addSpacing(16);
+
+    auto *projectorForm = new QFormLayout();
+    projectorForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    projectorForm->setHorizontalSpacing(16);
+    projectorForm->setVerticalSpacing(12);
+
+    m_projectorMargin = CmSpin(0.0, 50.0, projector);
+    projectorForm->addRow(tr("Space from the edges"), m_projectorMargin);
+
+    // ⚠️ **Le plancher est dans le champ, pas seulement dans la recherche.** Un projecteur qui
+    // descendrait à deux centimètres ne serait plus un plan projecteur : les pièces se toucheraient
+    // presque, et la découpe sous la projection n'aurait plus de trait à suivre.
+    m_projectorGap = CmSpin(10.0, 50.0, projector);
+    m_projectorGap->setMinimum(5.0);
+    projectorForm->addRow(tr("Space between two pieces"), m_projectorGap);
+
+    projectorLayout->addLayout(projectorForm);
+    projectorLayout->addSpacing(12);
+
+    m_projectorSourceBox = new QGroupBox(tr("The format of this PDF"), projector);
+    {
+        auto *box = new QVBoxLayout(m_projectorSourceBox);
+        // ⚠️ **Pas « un export Print »** : un PDF de plan de coupe arrive ici aussi, et le message
+        // mentirait sur son nom. Ce qui est vrai pour tous, c'est qu'il n'a pas été exporté pour une
+        // projection — donc que le chiffre du cartouche est celui du document, pas celui d'un run.
+        auto *note = new QLabel(
+            tr("This PDF was not exported in the Projector format: the cut quantity written on each "
+               "piece is the document's own, and the words are drawn, so they cannot be rewritten "
+               "here. To lay out a projection, generate it from a PDF exported in the Projector "
+               "format."),
+            m_projectorSourceBox);
+        note->setWordWrap(true);
+        QFont bold = note->font();
+        bold.setBold(true);
+        note->setFont(bold);
+        box->addWidget(note);
+    }
+    m_projectorSourceBox->hide();
+    projectorLayout->addWidget(m_projectorSourceBox);
+
+    // Ce que l'aperçu ne peut pas dire : le fichier porte trois calques que l'écran ne dessine pas.
+    auto *projectorNote = new QLabel(
+        tr("The PDF also carries three calibration layers, which the canvas does not show: a 5 cm "
+           "grid, a 3 in grid and a magenta background."),
+        projector);
+    projectorNote->setObjectName(QStringLiteral("outputDescription"));
+    projectorNote->setWordWrap(true);
+    projectorLayout->addWidget(projectorNote);
+
+    projectorLayout->addStretch(1);
+
+    tabs->addTab(Scrollable(projector, tabs), tr("Projector"));
 
     m_tabs = tabs;
     layout->addWidget(tabs, 1);
@@ -427,7 +514,7 @@ auto CutPlanPage::ActiveTab() const -> Tab
         case 1:
             return Tab::Print;
         case 2:
-            return Tab::Plotter;
+            return Tab::Projector;
         default:
             return Tab::Cutting;
     }
@@ -437,6 +524,24 @@ auto CutPlanPage::ActiveTab() const -> Tab
 auto CutPlanPage::PrintSettings() const -> PrintPanel *
 {
     return m_print;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void CutPlanPage::SetDocumentKind(bool projector)
+{
+    // Les deux avertissements ne disent rien l'un sans l'autre : le PDF vient d'un Print, donc
+    // l'onglet Projecteur prévient ; il vient d'une projection, donc c'est l'onglet Print.
+    m_projectorSourceBox->setVisible(!projector);
+    m_printSourceBox->setVisible(projector);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+auto CutPlanPage::Projector() const -> ProjectorSettings
+{
+    ProjectorSettings settings;
+    settings.marginCm = m_projectorMargin->value();
+    settings.gapCm = m_projectorGap->value();
+    return settings;
 }
 
 //---------------------------------------------------------------------------------------------------------------------

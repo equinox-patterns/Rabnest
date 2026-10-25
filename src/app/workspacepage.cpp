@@ -762,6 +762,11 @@ struct PrintInk
     QPainterPath shape;
     QColor colour;
     QVector<qreal> dashes;
+
+    /// La largeur du trait, en pixels du plan. **Zéro : celle du canevas** — un print se dessine au
+    /// trait du canevas, qui a un plancher de lisibilité. Une projection, non : son trait est celui
+    /// du format (7 pt), une longueur du plan, et il ne se règle pas au zoom.
+    double width = 0.0;
 };
 
 /// **One FOOTPRINT, and every size it prints.** The engine places one footprint per piece — the
@@ -892,8 +897,10 @@ protected:
             // file gets the pattern's own dashes back — see `kCanvasKeepsDashes`.
             const QVector<qreal> dashes = (m_canvas && !kCanvasKeepsDashes) ? QVector<qreal>()
                                                                             : ink.dashes;
-            painter->setPen(m_plain ? PlainPen(m_lineWidth)
-                                    : PrintPen(ink.colour, dashes, m_lineWidth));
+            // Une projection dessine la largeur du FORMAT, une longueur du plan ; le canevas garde
+            // pour elle son plancher, jamais son plafond.
+            const double width = ink.width > 0.0 ? std::max(ink.width, m_lineWidth) : m_lineWidth;
+            painter->setPen(m_plain ? PlainPen(width) : PrintPen(ink.colour, dashes, width));
             painter->drawPath(ink.shape);
         }
 
@@ -1287,6 +1294,9 @@ void WorkspacePage::RedrawPrint(bool refit)
             ink.shape = shape;
             ink.colour = layer.colour;
             ink.dashes = layer.dashes;
+            // Le trait du format n'est porté que par une projection : un print garde le sien, qui
+            // est une affaire d'écran et non de fichier.
+            ink.width = plan.projector ? layer.width : 0.0;
             inks[piece.placementIndex].append(ink);
         }
     }

@@ -26,6 +26,8 @@
 
 #include "app/rabnestwindow.h"
 
+#include "core/projector.h"
+
 #include "app/busydialog.h"
 #include "app/importoverlay.h"
 #include "app/exportimagedialog.h"
@@ -193,6 +195,12 @@ RabnestWindow::RabnestWindow(QWidget *parent)
         {
             m_printOutputs[row].plan = m_workspace->PrintPlanShown();
         }
+
+        // Une projection se déplace comme un print : même canevas, même geste, même retour.
+        if (row >= 0 && m_projectorOutputs.contains(row))
+        {
+            m_projectorOutputs[row].plan = m_workspace->PrintPlanShown();
+        }
     });
 
     connect(m_runs, &RunsDock::CurrentChanged, this, [this](int index) {
@@ -207,6 +215,16 @@ RabnestWindow::RabnestWindow(QWidget *parent)
             const PrintOutput &print = m_printOutputs.value(index);
             m_workspace->ShowPrint(print.plan, print.decor, print.framed, print.coverSvg,
                                    print.coverPaper, print.coverPage);
+            return;
+        }
+
+        // Une projection se dessine par le canevas du print : une page blanche, les pièces de
+        // toutes les tailles dessus, et aucun repère — il n'y a pas de feuille à assembler.
+        if (m_projectorOutputs.contains(index))
+        {
+            const ProjectorOutput &projection = m_projectorOutputs.value(index);
+            m_workspace->ShowPrint(projection.plan, ExportTemplate(), false, QByteArray(),
+                                   QRectF(), QRectF());
             return;
         }
 
@@ -281,6 +299,7 @@ void RabnestWindow::DeleteOutput(int index)
     // the plan one row off.
     m_plans.remove(index);
     m_printOutputs.remove(index);
+    m_projectorOutputs.remove(index);
     m_liningPlans.remove(index);
 
     // The maps are keyed by ROW, so every key above the one removed moves down with its row.
@@ -297,6 +316,13 @@ void RabnestWindow::DeleteOutput(int index)
         liningLeft.insert(it.key() > index ? it.key() - 1 : it.key(), it.value());
     }
     m_liningPlans = liningLeft;
+
+    QHash<int, ProjectorOutput> projectionsLeft;
+    for (auto it = m_projectorOutputs.cbegin(); it != m_projectorOutputs.cend(); ++it)
+    {
+        projectionsLeft.insert(it.key() > index ? it.key() - 1 : it.key(), it.value());
+    }
+    m_projectorOutputs = projectionsLeft;
 
     m_runs->RemoveRun(index);
 
@@ -330,7 +356,19 @@ void RabnestWindow::PrintCutPlan(int index)
     }
 
     // The scene IS the page, so the plan printed has to be the plan on screen.
-    m_workspace->Show(plan);
+    //
+    // ⚠️ **Une projection ne se redessine pas comme un plan de coupe** : sa ligne n'a pas de poses,
+    // et `Show` viderait la scène. Son canevas est celui du print, et c'est lui qu'on remet.
+    if (m_projectorOutputs.contains(index))
+    {
+        const ProjectorOutput &projection = m_projectorOutputs.value(index);
+        m_workspace->ShowPrint(projection.plan, ExportTemplate(), false, QByteArray(), QRectF(),
+                               QRectF());
+    }
+    else
+    {
+        m_workspace->Show(plan);
+    }
 
     const QSizeF planPx(plan.binWidthPx, plan.usedHeightPx);
 
@@ -557,6 +595,12 @@ void RabnestWindow::ExportOutputToImage(int index)
     // ⚠️ **A print run is not a cutting plan.** Its row exists so the print panel has something to
     // present; the plan beside it is a shell, and rendering it would write an empty sheet under the
     // name of a real output. A print is delivered as a PDF, which is the only file a print can be.
+    if (m_projectorOutputs.contains(index))
+    {
+        ExportProjectorOutput(index);
+        return;
+    }
+
     if (m_printOutputs.contains(index))
     {
         ExportPrintOutput(index);
@@ -616,7 +660,7 @@ void RabnestWindow::ExportPrintOutput(int index)
     // folder, and that is where its print belongs; a delivery that started in the Documents folder
     // would be a delivery she has to hunt for. The name proposed is the row's own, so the file she
     // is about to write is the one she pressed.
-    ExportPdfDialog dialog(RunsDock::Name(row, /*isPrint=*/true),
+    ExportPdfDialog dialog(RunsDock::Name(row, RunsDock::Kind::Print),
                            QFileInfo(output.sourcePath).absolutePath(), this);
     if (dialog.exec() != QDialog::Accepted)
     {
@@ -711,6 +755,37 @@ void RabnestWindow::ShowOutputInfo(int index)
         return;
     }
 
+    if (m_projectorOutputs.contains(index))
+    {
+        const ProjectorOutput &projection = m_projectorOutputs.value(index);
+
+        PrintInfo info;
+        info.title = RunsDock::Name(m_plans.at(index), RunsDock::Kind::Projector);
+        // Une projection n'a pas de modèle de papier : ce qui la décrit est sa page.
+        info.formatLabel = tr("Plan");
+        info.format = tr("Projection, one page at 1:1");
+        info.marginCm = projection.plan.marginCm;
+        info.gapCm = projection.plan.gapCm;
+        info.pages = 1;
+        info.seconds = projection.plan.seconds;
+        info.sizes = projection.plan.layers.size();
+
+        for (const PrintLayer &layer : projection.plan.layers)
+        {
+            for (const PrintPiece &piece : layer.pieces)
+            {
+                if (!info.pieces.contains(piece.name))
+                {
+                    info.pieces.append(piece.name);
+                }
+            }
+        }
+
+        OutputInfoDialog dialog(info, this);
+        dialog.exec();
+        return;
+    }
+
     OutputInfoDialog dialog(m_plans.at(index),
                             m_liningPlans.contains(index) ? &m_liningPlans[index] : nullptr, this);
     dialog.exec();
@@ -742,6 +817,7 @@ void RabnestWindow::BackHome()
     // document the next output would have been generated from.
     m_plans.clear();
     m_liningPlans.clear();
+    m_projectorOutputs.clear();
     m_runs->Clear();
     m_workspace->Clear();
 
@@ -779,6 +855,7 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
     m_overlay->setFocus();
 
     connect(m_overlay, &ImportOverlay::PrintRequested, this, &RabnestWindow::GeneratePrint);
+    connect(m_overlay, &ImportOverlay::ProjectorRequested, this, &RabnestWindow::GenerateProjector);
 
     connect(m_overlay, &ImportOverlay::Finished, this,
             [this](const QVector<CutPlan> &plans, const QVector<CutPlan> &lining) {
@@ -955,7 +1032,7 @@ void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &mod
                 m_plans.append(row);
                 m_printOutputs.insert(index, output);
                 m_runs->SetCanGenerate(true);
-                m_runs->AddRun(row, /*isPrint=*/true);
+                m_runs->AddRun(row, RunsDock::Kind::Print);
             });
 
     watcher->setFuture(QtConcurrent::run([document, sizeIds, pieces, marginCm = marginMm / 10.0,
@@ -967,4 +1044,136 @@ void RabnestWindow::GeneratePrint(const QStringList &sizeIds, const QString &mod
         return PrintPlan::Generate(document, sizeIds, pieces, marginCm, gapCm, binWidthPx, columns,
                                    sheetHeightMm, coverBlock, token, plainOutline, ungrouped);
     }));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::GenerateProjector(const QStringList &sizeIds, double marginCm, double gapCm)
+{
+    const ImportedDocument document = m_overlay != nullptr ? m_overlay->document() : m_document;
+    if (!document.isValid())
+    {
+        return;
+    }
+
+    m_document = document;
+    m_sizeIds = sizeIds;
+    m_pieceIds = m_overlay != nullptr ? m_overlay->pieceIds() : m_pieceIds;
+
+    // ⚠️ **Aucune question de groupe ici**, et ce n'est pas un oubli : pour le projecteur, les
+    // groupes n'existent pas — chaque membre est une pièce classique, posée à côté de l'autre avec
+    // son propre dessin. La recherche les décompose tous, sans rien demander.
+
+    // The same moment of waiting the other runs show: a search tries up to eight widths, and a
+    // window that says nothing for that long is a window somebody clicks on twice.
+    auto *busy = new BusyDialog(this, tr("Projector"), tr("Looking for the smallest page…"));
+    busy->show();
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
+    auto *clock = new QElapsedTimer();
+    clock->start();
+
+    const QStringList pieces = m_pieceIds;
+
+    Projector::Limits limits;
+    limits.gapCm = gapCm;
+
+    auto *watcher = new QFutureWatcher<Projector::Outcome>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, clock, busy, document, sizeIds] {
+                Projector::Outcome outcome = watcher->future().result();
+
+                // The figure the user reads is the time HER plan cost, measured around the search —
+                // and it travels inside the plan so that the canvas and the sheet can both write it.
+                outcome.plan.seconds = clock->elapsed() / 1000.0;
+
+                delete clock;
+                watcher->deleteLater();
+                busy->deleteLater();
+
+                m_overlay->deleteLater();
+                m_overlay = nullptr;
+
+                if (!outcome.ok)
+                {
+                    QMessageBox::warning(this, tr("Projector"), outcome.error);
+                    return;
+                }
+
+                ProjectorOutput output;
+                output.plan = outcome.plan;
+                output.sourcePath = document.path();
+
+                // The row that presents it: the sizes it covers. **Pas de format, pas de papier** —
+                // une projection n'a ni l'un ni l'autre, et le nom de sa ligne ne doit pas en
+                // inventer.
+                const QString sizes = SizesPhrase(document, sizeIds);
+
+                CutPlan row;
+                row.sizeLabel = sizes.isEmpty() ? tr("All sizes") : sizes;
+                row.binWidthPx = outcome.plan.binWidthPx;
+                row.usedHeightPx = outcome.plan.usedHeightPx;
+                row.marginCm = outcome.plan.marginCm;
+                row.gapCm = outcome.plan.gapCm;
+                row.seconds = outcome.plan.seconds;
+                row.ok = true;
+
+                const int index = m_plans.size();
+                m_plans.append(row);
+                m_projectorOutputs.insert(index, output);
+                m_runs->SetCanGenerate(true);
+                m_runs->AddRun(row, RunsDock::Kind::Projector);
+            });
+
+    watcher->setFuture(QtConcurrent::run(
+        [document, sizeIds, pieces, marginCm, limits] {
+            return Projector::Nest(document, sizeIds, pieces, marginCm, limits);
+        }));
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ExportProjectorOutput(int index)
+{
+    const ProjectorOutput &output = m_projectorOutputs.value(index);
+    const CutPlan &row = m_plans.at(index);
+
+    // The folder proposed is the one the PDF came from, and the name proposed is the row's own: the
+    // file she is about to write is the one she pressed.
+    ExportPdfDialog dialog(RunsDock::Name(row, RunsDock::Kind::Projector),
+                           QFileInfo(output.sourcePath).absolutePath(), this,
+                           tr("Export the projection as PDF"));
+    if (dialog.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    const QString path = QDir(dialog.directory()).filePath(dialog.fileName());
+
+    // The payload is in the PDF the run was read from, and that PDF is the only thing that still
+    // knows what the run was drawn from.
+    const ImportedDocument document = ImportedDocument::Read(output.sourcePath);
+    if (!document.isValid() || document.kind() != ImportedDocument::Kind::Ostara)
+    {
+        QMessageBox::warning(
+            this, tr("Export"),
+            tr("The PDF this projection was laid from can no longer be read:\n%1\n\n%2")
+                .arg(output.sourcePath, document.error()));
+        return;
+    }
+
+    PrintPdf::Job job;
+    job.plan = output.plan;
+    job.payload = document.payload();
+    job.projector = true;
+    job.overlays = Projector::Overlays();
+    job.sourcePath = output.sourcePath;
+    job.title = RunsDock::Name(row, RunsDock::Kind::Projector);
+
+    QString error;
+    if (!PrintPdf::Write(job, path, &error))
+    {
+        QMessageBox::warning(this, tr("Export"), error);
+        return;
+    }
+
+    QMessageBox::information(this, tr("Export"), tr("File written:\n%1").arg(path));
 }

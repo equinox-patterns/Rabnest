@@ -91,6 +91,12 @@ signals:
     void PrintRequested(const QStringList &sizeIds, const QString &modelToken, int columns,
                         double marginMm, double gapMm, bool plainOutline);
 
+    /// L'onglet Projecteur a demandé sa génération : les tailles cochées, et ses deux écarts.
+    ///
+    /// Comme le print, et pour la même raison : la recherche de largeur a besoin du document, que la
+    /// page ne garde pas — c'est la fenêtre qui le tient.
+    void ProjectorRequested(const QStringList &sizeIds, double marginCm, double gapCm);
+
 
 protected:
     void paintEvent(QPaintEvent *event) override;

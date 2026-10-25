@@ -45,6 +45,7 @@
 #include <QSvgGenerator>
 #include <QSvgRenderer>
 #include <QTemporaryDir>
+#include <QXmlStreamWriter>
 
 #include <algorithm>
 #include <cmath>
@@ -212,6 +213,9 @@ void SetInkStyle(QDomElement &path, const PrintLayer &layer, bool plain)
 {
     path.setAttribute(QStringLiteral("fill"), QStringLiteral("none"));
 
+    // ⚠️ **Le trait d'une projection n'est pas décidé ici.** La couche le porte (noir, plein, 7 pt,
+    // voir `PrintPlan::Generate`), pour que le canevas et le fichier lisent la même valeur : un trait
+    // décidé à l'écriture ne serait pas celui de l'écran, et c'est exactement ce qui se voyait.
     if (plain)
     {
         path.setAttribute(QStringLiteral("stroke"), QStringLiteral("#000000"));
@@ -238,6 +242,7 @@ void SetInkStyle(QDomElement &path, const PrintLayer &layer, bool plain)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 /// The `<metadata>` the file carries, read from the file the run came from and restated for THIS
 /// run.
 ///
@@ -249,11 +254,15 @@ void SetInkStyle(QDomElement &path, const PrintLayer &layer, bool plain)
 /// can state, and the cover page is a document of its own.
 ///
 /// @return false when there is nothing to carry and no way to state the paper.
-auto CarryMetadata(QDomDocument &document, const QDomElement &source, const PrintPlan &plan)
-    -> bool
+auto CarryMetadata(QDomDocument &document, const QDomElement &source, const PrintPlan &plan,
+                   bool projector) -> bool
 {
     const ExportPrintModel *model = FindExportPrintModel(plan.modelToken);
-    if (model == nullptr)
+
+    // **Une projection n'a pas de modèle de papier, et n'en a pas besoin.** Sa page est celle que la
+    // recherche a trouvée, et la recette la porte telle quelle : c'est ce qui fait d'un fichier
+    // projecteur un fichier qu'on relit, au lieu d'un fichier qu'on refuse.
+    if (model == nullptr && !projector)
     {
         return false;
     }
@@ -285,11 +294,21 @@ auto CarryMetadata(QDomDocument &document, const QDomElement &source, const Prin
     }
 
     format.setAttribute(QStringLiteral("token"), plan.modelToken);
-    format.setAttribute(QStringLiteral("framed"), model->hasFrame ? QStringLiteral("1")
-                                                                 : QStringLiteral("0"));
+    format.setAttribute(QStringLiteral("framed"),
+                         model != nullptr && model->hasFrame ? QStringLiteral("1")
+                                                             : QStringLiteral("0"));
     format.setAttribute(QStringLiteral("columns"), QString::number(std::max(plan.columns, 1)));
     format.setAttribute(QStringLiteral("documentWidthMm"),
-                         QString::number(model->widthMm * std::max(plan.columns, 1), 'f', 4));
+                         model != nullptr
+                             ? QString::number(model->widthMm * std::max(plan.columns, 1), 'f', 4)
+                             : QString::number(PrintMetrics::PxToMm(plan.binWidthPx), 'f', 4));
+
+    // Le marqueur de destination : une projection le dit, et c'est ce qui l'empêche d'être relue
+    // comme une impression — sans lui, Rabnest la re-nidifierait en écart zéro et en tuilé.
+    if (projector)
+    {
+        format.setAttribute(QStringLiteral("destination"), QStringLiteral("projector"));
+    }
     format.setAttribute(QStringLiteral("frameHeightMm"), QString::number(plan.sheetHeightMm, 'f', 4));
     format.setAttribute(QStringLiteral("marginMm"), QString::number(plan.marginCm * 10.0, 'f', 4));
     format.setAttribute(QStringLiteral("gapMm"), QString::number(plan.gapCm * 10.0, 'f', 4));
@@ -360,7 +379,7 @@ auto WritePlan(const PrintPdf::Job &job, const QString &path, bool withPayload, 
     // every piece's decor: rendered, those cartouches and fold lines land all over the plan, at
     // places that belong to no sheet. A file keeps it (it is what Rabnest reopens); a printer does
     // not, so a document made for rendering leaves it out.
-    if (withPayload && !CarryMetadata(document, source.documentElement(), plan))
+    if (withPayload && !CarryMetadata(document, source.documentElement(), plan, job.projector))
     {
         *error = QCoreApplication::translate("PrintPdf", "The format this run was laid for is not "
                                                          "one Rabnest knows, so its paper cannot be "
@@ -368,7 +387,38 @@ auto WritePlan(const PrintPdf::Job &job, const QString &path, bool withPayload, 
         return false;
     }
 
-    const bool layered = plan.layers.size() > 1;
+    // ⚠️ **Une projection est TOUJOURS calquée**, même en taille unique : son fond et ses deux
+    // grilles sont trois choses que l'utilisatrice doit pouvoir éteindre, et un document plat n'en
+    // porterait aucun.
+    const bool layered = job.projector || plan.layers.size() > 1;
+
+    // ── Les calques du projecteur : SOUS les pièces ─────────────────────────────────────────────
+    //
+    // Écrits par le SOCLE (`io/GradedOverlays.h`), les mêmes qu'Ostara : un fond plein page puis les
+    // grilles de calibration, chacun portant son rôle. Le fragment est produit par le même écrivain
+    // puis adopté par ce document-ci — deux écritures des mêmes valeurs divergeraient au premier
+    // changement de couleur ou de pas, et rien ne dirait laquelle est le projecteur.
+    if (job.projector)
+    {
+        QByteArray fragmentXml;
+        {
+            QXmlStreamWriter writer(&fragmentXml);
+            writer.writeStartElement(QStringLiteral("svg"));
+            GradedOverlays::Write(writer, job.overlays, rect.width(), rect.height(),
+                                  PrintMetrics::PtToPx(4.0), QStringLiteral("black"));
+            writer.writeEndElement();
+        }
+
+        QDomDocument fragment;
+        if (fragment.setContent(fragmentXml, false))
+        {
+            const QDomElement holder = fragment.documentElement();
+            for (QDomNode child = holder.firstChild(); !child.isNull(); child = child.nextSibling())
+            {
+                root.appendChild(document.importNode(child, true));
+            }
+        }
+    }
 
     // **The largest size is written FIRST and the smallest last.** Not an order of the run's own:
     // it is the order of the drawing. The sizes of a graded pattern all stand on the same pieces, so
@@ -830,8 +880,8 @@ auto PrintPdf::Write(const Job &job, const QString &path, QString *error) -> boo
                 // once, that the reader renders and that Rabnest can reopen. A second copy of the
                 // same drawing would be twice the bytes and two things to keep in agreement.
                 if (converter.convert(documents.plan, pages, path, info, documents.marks,
-                                      LayoutIsALayer(job), documents.cover, coverSheet,
-                                      documents.plan))
+                                      job.projector || LayoutIsALayer(job), documents.cover,
+                                      coverSheet, documents.plan))
                 {
                     return true;
                 }
