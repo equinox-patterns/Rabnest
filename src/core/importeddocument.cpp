@@ -91,6 +91,15 @@ constexpr auto kAttrInkscapeLabel = "inkscape:label";
 constexpr auto kAttrGroupMode = "inkscape:groupmode";
 constexpr auto kAttrIllustratorLayer = "i:layer";
 constexpr auto kAttrOstaraLayout = "ostara:layout";
+/// Le rôle d'un calque, quand ce n'est ni une taille ni le décor — voir ParsePayload.
+constexpr auto kAttrOstaraRole = "ostara:role";
+constexpr auto kValueBackground = "background";
+constexpr auto kValueCalibration = "calibration";
+/// La destination d'une génération, dans la recette de la charge utile.
+constexpr auto kAttrDestination = "destination";
+constexpr auto kValueProjector = "projector";
+constexpr auto kTagExportRecipe = "exportRecipe";
+constexpr auto kTagFormat = "format";
 constexpr auto kValueLayer = "layer";
 constexpr auto kValueYes = "yes";
 
@@ -212,10 +221,52 @@ void ImportedDocument::ParsePayload()
     }
 
     const QDomElement root = svg.documentElement();
+
+    // ── La destination, avant les calques ────────────────────────────────────────────────────────
+    //
+    // Une génération dit ce qu'elle EST : une impression, un plan de coupe, un plotter, ou une
+    // projection. Sans cette lecture, un PDF projecteur se re-nidifie comme une impression — en
+    // écart zéro et en tuilé — et le plan produit a l'air juste. Le marqueur est lu ici, une fois,
+    // et il reste optionnel : un fichier d'avant lui n'en porte pas, et se lit comme avant.
+    for (QDomElement metadata = root.firstChildElement(QStringLiteral("metadata")); !metadata.isNull();
+         metadata = metadata.nextSiblingElement(QStringLiteral("metadata")))
+    {
+        const QDomElement recipe = metadata.firstChildElement(QLatin1String(kTagExportRecipe));
+        const QDomElement format = recipe.firstChildElement(QLatin1String(kTagFormat));
+        if (format.attribute(QLatin1String(kAttrDestination)) == QLatin1String(kValueProjector))
+        {
+            m_projector = true;
+        }
+    }
+
+    // ── Une projection ne se nidifie pas ici ────────────────────────────────────────────────────
+    //
+    // ⚠️ **Le refus est posé ICI, et pas dans une page de l'interface.** Un document se lit par
+    // plusieurs chemins — la fenêtre, la ligne de commande, le banc d'essai — et une règle qui ne
+    // vit que dans l'un laisse les autres produire un plan faux qui a l'air juste : un PDF
+    // projecteur re-nidifié en écart zéro et en tuilé. Un document refusé est refusé partout, et
+    // `error()` dit pourquoi.
+    if (m_projector)
+    {
+        m_error = QStringLiteral("This PDF was exported for a projector: it is a 1:1 projection, on "
+                                 "a single page, and it cannot be nested again here.\n\n"
+                                 "Open it in a PDF viewer to project it.");
+    }
     for (QDomElement layer = root.firstChildElement(); !layer.isNull();
          layer = layer.nextSiblingElement())
     {
         if (!IsLayer(layer))
+        {
+            continue;
+        }
+
+        // ── Ce qui n'est pas une taille ──────────────────────────────────────────────────────────
+        //
+        // Un calque projecteur peut porter un FOND ou une GRILLE de calibration : `ostara:role` le
+        // dit, et ce ne sont pas des tailles — les offrir comme telles ferait nidifier un aplat
+        // magenta avec les pièces. Le décor, lui, a son propre chemin juste après.
+        const QString role = layer.attribute(QLatin1String(kAttrOstaraRole));
+        if (role == QLatin1String(kValueBackground) || role == QLatin1String(kValueCalibration))
         {
             continue;
         }

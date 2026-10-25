@@ -91,6 +91,18 @@ public:
     /// decor flat, and a foreign PDF knows nothing of it.
     QString decorLayerId() const;
 
+    /// Whether this file was exported FOR A PROJECTOR — a 1:1 projection, one page, no tiling.
+    ///
+    /// ⚠️ **Il faut le demander, parce que rien d'autre ne le dit.** Sans marqueur, un PDF
+    /// projecteur se lit comme un PDF d'impression : même charge utile, mêmes pièces, même recette —
+    /// et Rabnest le re-nidifierait en écart zéro et en tuilé, silencieusement. Le marqueur voyage
+    /// dans le contenu de la charge utile (`exportRecipe/format@destination`), où l'espace est libre ;
+    /// les clés de l'enveloppe PDF, elles, sont des constantes que ce côté-ci ne peut pas apprendre.
+    ///
+    /// Ce mode n'est pas encore implémenté ici : ce que l'application en fait aujourd'hui, c'est
+    /// refuser le fichier en disant pourquoi — jamais produire un plan faux qui a l'air fini.
+    bool isProjector() const { return m_projector; }
+
     /// The payload, as Ostara wrote it. Empty for a foreign document.
     QByteArray payload() const { return m_payload; }
 
@@ -126,6 +138,8 @@ private:
     QByteArray m_payload;
     QVector<ImportedLayer> m_layers;
     QString m_decorLayerId;
+    /// Voir isProjector().
+    bool m_projector = false;
     QString m_error;
 };
 
