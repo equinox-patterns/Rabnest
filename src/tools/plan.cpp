@@ -387,15 +387,14 @@ int main(int argc, char *argv[])
                     continue;
                 }
 
-                const Clipper2Lib::Path64 &poly = plan.footprint.polygons.at(
-                    static_cast<std::size_t>(index));
+                // ⚠️ **La pièce de CETTE taille, pas l'empreinte.** L'empreinte est l'union de
+                // toutes les tailles : y comparer le décor d'une taille ne mesure rien, et c'est ce
+                // qui a fait annoncer « Devant loin de sa pièce » alors que le fichier était juste.
                 double px0 = 1e18, py0 = 1e18, px1 = -1e18, py1 = -1e18;
-                for (const auto &pt : poly)
+                for (const QPointF &pt : pose.outline)
                 {
-                    const double x = static_cast<double>(pt.x) / kScale;
-                    const double y = static_cast<double>(pt.y) / kScale;
-                    px0 = std::min(px0, x); px1 = std::max(px1, x);
-                    py0 = std::min(py0, y); py1 = std::max(py1, y);
+                    px0 = std::min(px0, pt.x()); px1 = std::max(px1, pt.x());
+                    py0 = std::min(py0, pt.y()); py1 = std::max(py1, pt.y());
                 }
                 const QRectF pieceRect(px0, py0, px1 - px0, py1 - py0);
                 const QRectF inside = pieceRect.intersected(decor.box);
@@ -431,10 +430,16 @@ int main(int argc, char *argv[])
 
                 out << "      CONTIENT " << pose.name << " : " << int(ratio * 100.0) << "%\n";
 
-                out << "      decor " << pose.name
+                out << "      decor " << pose.key
                     << " : pièce x[" << px0 << "," << px1 << "] y[" << py0 << "," << py1 << "]"
                     << " | dessin x[" << decor.box.left() << "," << decor.box.right()
                     << "] y[" << decor.box.top() << "," << decor.box.bottom() << "]\n";
+
+                // Où le plan POSE la pièce, et par quel point il la fait tourner : sans ces trois
+                // nombres, un décalage du décor ne peut pas être attribué.
+                out << "      POSEPLACE " << pose.name << " : rotation " << placement.rotation
+                    << " placement (" << placement.x << "," << placement.y << ") origin ("
+                    << origin.x() << "," << origin.y() << ")\n";
             }
 
             // Ce que le renderer croit devoir dessiner, contre ce que la boîte dit : c'est là que se

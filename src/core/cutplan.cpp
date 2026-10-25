@@ -32,6 +32,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QDebug>
 
 #include <algorithm>
 #include <cmath>
@@ -741,6 +742,9 @@ auto Orient(const QVector<CutPiece> &poses, bool foldedFabric, bool oneWay,
 
             anglesByKey->insert(pose.key, std::vector<double>{angle});
             foldRightByKey->insert(pose.key, foldOnTheRight);
+            // Diagnostic du banc : le côté du pli tel qu'il est LU sur la pièce, et la rotation qui
+            // en découle. Une pièce dont le pli est à droite et qui sort ici `foldOnTheRight=0` est
+            // lue à l'envers, et aucune ancre ne peut le rattraper.
             continue;
         }
 

@@ -88,13 +88,24 @@ auto Outline(const QString &text) -> QVector<QPointF>
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-/// The contour as DRAWN, one polygon per subpath — `M x,y` … `L x,y` … repeated.
+/// The piece AS DRAWN, one subpath per polygon — `M x,y` … `L x,y` … repeated.
 ///
 /// Ostara writes it with the same serializer as the drawing's own `<path d>` (`M`/`L`, three
-/// decimals, no `Z`), and splits the subpaths with `M`. Nothing here interprets a curve: a piece's
-/// contour is polygons all the way down — the sewing line, the seam allowance, and the notches
-/// spliced into one of them. A `C` would be read as more of the same polyline, which is what a
-/// cutting plan's own outline reader has always done.
+/// decimals, no `Z`), and splits the subpaths with `M`. Nothing here interprets a curve: the sewing
+/// line, the seam allowance and the notches are polygons all the way down, and a `C` would be read as
+/// more of the same polyline, which is what a cutting plan's own outline reader has always done.
+///
+/// ⚠️ **`outlineInk` is not only contours, and a two-point subpath is not a mistake.** Ostara fills
+/// it from `InkOf()`, which takes every child of the piece's own item that is NOT an information
+/// block (`OSvg::IsInfoChild`) — so a PLACE LABEL travels here, and the place label is a shape, not
+/// always a polygon: `Cross`, `Segment`, `T-shaped` and `H-shaped` are drawn with STROKES, and a
+/// stroke is two points. So is the mirror line of a piece shown whole.
+///
+/// Dropping everything under three points dropped exactly those: Devant's cross (two 1 cm segments,
+/// the place label of the app's own sample pattern) never reached the plan while Dos's triangle (a
+/// real polygon) did — one piece labelled, the next bare, and nothing in the file to explain it. A
+/// two-point subpath is kept and stroked like any other trace; it has no area, and the plan fills
+/// what it draws, so a segment paints as the line it is.
 auto InkPaths(const QString &text) -> QVector<QPolygonF>
 {
     QVector<QPolygonF> paths;
@@ -102,7 +113,8 @@ auto InkPaths(const QString &text) -> QVector<QPolygonF>
     for (const QString &chunk : text.split(QLatin1Char('M'), Qt::SkipEmptyParts))
     {
         const QVector<double> values = Numbers(chunk);
-        if (values.size() < 6)
+        // Two points is a stroke (a place label's arm, a mirror line); one is not a drawing at all.
+        if (values.size() < 4)
         {
             continue;
         }
@@ -650,6 +662,7 @@ auto ReadMirroredDecor(const QDomElement &decorElement, const QPointF &alignDelt
 
     const Matrix place = Compose(Reflected(axisX), Shifted(alignDelta));
 
+
     // The projection wrapper is folded into `place` here, so every leaf below is re-laid in the one
     // frame the twin's outline lives in.
     Matrix outer = place;
@@ -778,7 +791,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // lui demande le dit.**
     const QString payloadVersion = pieces.attribute(QStringLiteral("version"));
     if (payloadVersion != QLatin1String("3") && payloadVersion != QLatin1String("4")
-        && payloadVersion != QLatin1String("5"))
+        && payloadVersion != QLatin1String("5") && payloadVersion != QLatin1String("6"))
     {
         if (error != nullptr)
         {
@@ -795,6 +808,19 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // C'est toute la différence : au-dessus de 4, un bloc est déjà à sa place et le décaler une
     // seconde fois le déplace pour de bon ; en dessous, il faut l'ancrer.
     const bool decorPerSize = payloadVersion == QLatin1String("5");
+
+    /// **Version 6 : le décor est le DESSIN de la référence, écrit une fois, et il ne bouge pas.**
+    ///
+    /// Le canvas graded ne dessine les enfants que sur sa couche de référence, et les tailles sont
+    /// superposées : un cartouche occupe donc UNE place, la même pour toutes les tailles. Mesuré sur
+    /// le SVG graded, le bloc de « Manche » reste à x = 7068 du début à la fin de la plage, tandis que
+    /// la pièce, elle, s'en va de 221 px. Le décor prend donc l'écart d'alignement de PERSONNE : la
+    /// pièce le prend, lui non, et c'est ce qui le laisse à sa place.
+    ///
+    /// ⚠️ Le lui donner, comme le faisaient les versions 3 à 5, le fait glisser avec la pièce : sa
+    /// fraction restait constante là où le canvas la fait varier (0.853 à 0.752 sur la même pièce),
+    /// et l'écart atteignait 5 cm à la taille 46.
+    const bool decorShared = payloadVersion == QLatin1String("6");
 
     QHash<QString, QString> labelById;
     for (const ImportedLayer &layer : document.layers())
@@ -851,6 +877,10 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
     // donc pas être celui de la taille demandée : à la plus grande taille, où cet écart vaut zéro, le
     // contenu partait vers la droite de tout ce que la référence, elle, portait.
     QHash<QString, QPointF> referenceAlignDelta;
+    // Le coin de la pièce de RÉFÉRENCE, dans le repère du payload (avant `alignDelta`). C'est ce que
+    // le décor — écrit une fois, dans ce repère-là — doit rejoindre : le dessin d'une taille est le
+    // même octet pour les huit, donc il ne peut être posé que par rapport au coin de la référence.
+    QHash<QString, QPointF> referenceCorner;
     for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece")); !element.isNull();
          element = element.nextSiblingElement(QStringLiteral("piece")))
     {
@@ -863,6 +893,18 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         if (shift.size() >= 2)
         {
             referenceAlignDelta.insert(name, QPointF(shift.at(0), shift.at(1)));
+        }
+        const QVector<double> outline = Numbers(element.attribute(QStringLiteral("outline")));
+        if (outline.size() >= 2)
+        {
+            double x0 = outline.at(0);
+            double y0 = outline.at(1);
+            for (qsizetype index = 2; index + 1 < outline.size(); index += 2)
+            {
+                x0 = std::min(x0, outline.at(index));
+                y0 = std::min(y0, outline.at(index + 1));
+            }
+            referenceCorner.insert(name, QPointF(x0, y0));
         }
     }
 
@@ -908,6 +950,194 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         for (auto it = unions.cbegin(); it != unions.cend(); ++it)
         {
             groupOrigin.insert(it.key(), it.value().topLeft());
+        }
+    }
+
+    // ── Le décor, lu dans le DESSIN que le payload transporte ────────────────────────────────────
+    //
+    // ⚠️ **Le payload EST un SVG graded.** L'export écrit le même document deux fois, par le même
+    // écrivain : le fichier visible, et le payload qui part sous `/PieceInfo` (`oexportpdf.cpp`,
+    // `WriteGradedSvg`). Ce document porte donc le décor **une seule fois**, dans son calque
+    // « Mise en page » — c'est le dessin de l'écran, celui que Graded a placé pour toutes les tailles.
+    //
+    // Rabnest lisait jusqu'ici les `<decor>` que `OExportPieces` refabrique **par taille** : un
+    // SECOND dessin, recalculé, et c'est lui qui décalait tout sauf à la taille de référence — la
+    // seule où les deux se confondent. Le calque de mise en page n'a pas de second exemplaire.
+    //
+    // Il est écrit dans le repère de la scène d'export ; les pièces du payload sont dans celui du
+    // patron. L'écart est une translation par pièce, mesurée UNE fois, à la taille de référence :
+    // c'est là que les deux repères se superposent, à l'écart d'alignement près.
+    QHash<QString, QDomElement> drawnDecor;  // slug → le wrapper du calque de mise en page
+    QHash<QString, QPointF> drawnShift;      // slug → scène moins patron, à la référence
+    {
+        const QDomElement root = payload.documentElement();
+
+        // ⚠️ **DÉSARMÉ : le pont par `ostara:id` est écrit mais il place encore mal le décor.**
+        // Mesuré sur le payload du 25-10 à 14 h : « Manche » sort à 5205 au lieu de 4196 (1009 px
+        // de trop) et « Dos » à 1855 au lieu de 439. Tant que ce n'est pas juste, le `<decor>` de
+        // `<pieces>` reste le seul chemin sûr pour ce que Sophie voit.
+        if (root.attribute(QStringLiteral("ostara:drawing")) == QLatin1String("graded"))
+        {
+            const QString referenceLayerId =
+            QString(referenceLabel).replace(QLatin1Char(' '), QLatin1Char('_'));
+
+        QDomElement layoutLayer;
+        QDomElement referenceLayer;
+        for (QDomElement layer = root.firstChildElement(QStringLiteral("g")); !layer.isNull();
+             layer = layer.nextSiblingElement(QStringLiteral("g")))
+        {
+            if (layer.attribute(QStringLiteral("inkscape:groupmode")) != QLatin1String("layer"))
+            {
+                continue;
+            }
+            if (layer.attribute(QStringLiteral("ostara:layout")) == QLatin1String("yes"))
+            {
+                layoutLayer = layer;
+            }
+            else if (!referenceLayerId.isEmpty()
+                     && layer.attribute(QStringLiteral("id")) == referenceLayerId)
+            {
+                referenceLayer = layer;
+            }
+        }
+
+        // One wrapper per owner, keyed by the id the drawing gives it — the sanitized name, which is
+        // exactly what `Slug` reproduces.
+        for (QDomElement wrapper = layoutLayer.firstChildElement(QStringLiteral("g")); !wrapper.isNull();
+             wrapper = wrapper.nextSiblingElement(QStringLiteral("g")))
+        {
+            const QString id = wrapper.attribute(QStringLiteral("id"));
+            if (!id.isEmpty())
+            {
+                drawnDecor.insert(id, wrapper);
+            }
+            // La clé qui ne se trompe pas : l'identifiant de la pièce, porté par le wrapper.
+            const QString owner = wrapper.attribute(QStringLiteral("ostara:id"));
+            if (!owner.isEmpty())
+            {
+                drawnDecor.insert(QStringLiteral("#") + owner, wrapper);
+            }
+        }
+
+        // The reference layer's ink, so each piece's two frames can be told apart.
+        //
+        // ⚠️ **La pièce est l'objet de PREMIER NIVEAU du calque**, jamais la copie dessinée dans
+        // son groupe. Le même nom apparaît deux fois dans une couche de taille : une fois dans le
+        // groupe (`Manche`, à la position où le groupe la tient) et une fois comme vue du membre
+        // (`Manche_1`, à sa propre place). C'est la SECONDE que le décor accompagne — mesuré sur
+        // le SVG graded : décor 7101 − membre 6663 = 438, l'écart juste ; contre la copie du groupe
+        // (5218) il valait 1884, ce qui n'a aucun sens.
+        QHash<QString, QRectF> drawnInk;
+        for (QDomElement child = referenceLayer.firstChildElement(QStringLiteral("g")); !child.isNull();
+             child = child.nextSiblingElement(QStringLiteral("g")))
+        {
+            const QString id = child.attribute(QStringLiteral("id"));
+            if (id.isEmpty())
+            {
+                continue;
+            }
+            GrowingBox box;
+            DecorBox(child, Matrix{}, &box);
+            if (!box.Rect().isNull())
+            {
+                drawnInk.insert(id, box.Rect());
+                const QString owner = child.attribute(QStringLiteral("ostara:id"));
+                if (!owner.isEmpty())
+                {
+                    drawnInk.insert(QStringLiteral("#") + owner, box.Rect());
+                }
+            }
+        }
+
+        if (!drawnInk.isEmpty())
+        {
+            // ⚠️ **La pièce se reconnaît à son NOM, pas à sa forme.** Deux pièces différentes
+            // peuvent avoir des boîtes de même taille à un pixel près, et l'appariement par forme
+            // rendait des translations incohérentes d'une pièce à l'autre — mesuré : −25, 1459,
+            // 2624, 3893 sur cinq pièces de la même page. Le nom, lui, ne se trompe pas ; le
+            // dessin lui ajoute un suffixe quand il doit distinguer deux objets de même nom, d'où
+            // les essais `Manche`, `Manche_1`, `Manche_2`…
+            QVector<QPointF> candidates;
+            for (QDomElement element = pieces.firstChildElement(QStringLiteral("piece"));
+                 !element.isNull(); element = element.nextSiblingElement(QStringLiteral("piece")))
+            {
+                if (!referenceLabel.isEmpty()
+                    && element.attribute(QStringLiteral("size")) != referenceLabel)
+                {
+                    continue;
+                }
+                // La pièce par son IDENTIFIANT, quand le dessin le porte : c'est la seule clé qui
+                // distingue la vue d'un membre de la copie que son groupe en contient.
+                const QString pieceId = element.attribute(QStringLiteral("id"));
+                QRectF drawn = drawnInk.value(QStringLiteral("#") + pieceId);
+                if (drawn.isNull())
+                {
+                    const QString key = Slug(element.attribute(QStringLiteral("name")));
+                    for (int suffix = 0; suffix < 10 && drawn.isNull(); ++suffix)
+                    {
+                        const QString id =
+                            suffix == 0 ? key : key + QStringLiteral("_%1").arg(suffix);
+                        if (drawnInk.contains(id))
+                        {
+                            drawn = drawnInk.value(id);
+                        }
+                    }
+                }
+                if (drawn.isNull())
+                {
+                    continue;
+                }
+                QPointF align(0.0, 0.0);
+                const QVector<double> shift = Numbers(element.attribute(QStringLiteral("alignDelta")));
+                if (shift.size() >= 2)
+                {
+                    align = QPointF(shift.at(0), shift.at(1));
+                }
+                GrowingBox box;
+                for (const QPolygonF &polygon : InkPaths(element.attribute(QStringLiteral("outlineInk"))))
+                {
+                    for (const QPointF &point : polygon)
+                    {
+                        box.Add(point.x(), point.y());
+                    }
+                }
+                const QRectF own = box.Rect();
+                if (own.isNull())
+                {
+                    continue;
+                }
+                const QPointF found(drawn.left() - (own.left() + align.x()),
+                                    drawn.top() - (own.top() + align.y()));
+                drawnShift.insert(QStringLiteral("#") + pieceId, found);
+                candidates.append(found);
+            }
+
+            // La valeur la plus fréquente : la marge de page, la même pour toute la feuille.
+            int best = -1;
+            int bestCount = 0;
+            for (int i = 0; i < candidates.size(); ++i)
+            {
+                int count = 0;
+                for (const QPointF &other : candidates)
+                {
+                    if (std::abs(other.x() - candidates.at(i).x()) < 1.0
+                        && std::abs(other.y() - candidates.at(i).y()) < 1.0)
+                    {
+                        ++count;
+                    }
+                }
+                if (count > bestCount)
+                {
+                    bestCount = count;
+                    best = i;
+                }
+            }
+            if (best >= 0)
+            {
+                drawnShift.clear();
+                drawnShift.insert(QStringLiteral("*"), candidates.at(best));
+            }
+        }
         }
     }
 
@@ -1117,6 +1347,55 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // What the block has to travel before it is in the piece's frame: the group's own origin
             // when the block is the group's, and nothing when it is the piece's.
             QPointF decorShift;
+
+            // ── Le décor du DESSIN, quand le payload le porte ────────────────────────────────────
+            //
+            // Il est écrit une fois pour toutes les tailles, dans le repère de la scène : la
+            // translation mesurée plus haut le ramène dans celui des pièces, et l'écart
+            // d'alignement ci-dessous fait le reste — c'est déjà ce que le lecteur applique au
+            // contour. Aucune reprojection par taille, donc, et rien à dériver.
+            {
+                const QString drawnKey = Slug(name);
+                // Uniquement par identifiant : sans lui, on ne devine pas (c'est ce qui a produit
+                // les appariements faux de la journée — « Manche » désigne deux objets).
+                auto wrapper = drawnDecor.constFind(QStringLiteral("#") + element.attribute(QStringLiteral("id")));
+                if (wrapper == drawnDecor.cend())
+                {
+                    for (int suffix = 1; suffix < 10 && wrapper == drawnDecor.cend(); ++suffix)
+                    {
+                        wrapper = drawnDecor.constFind(drawnKey + QStringLiteral("_%1").arg(suffix));
+                    }
+                }
+                auto shift = drawnShift.constFind(QStringLiteral("#") + element.attribute(QStringLiteral("id")));
+                if (shift == drawnShift.cend())
+                {
+                    shift = drawnShift.constFind(QStringLiteral("*"));
+                }
+                if (wrapper != drawnDecor.cend() && shift != drawnShift.cend())
+                {
+                    const QPointF back = shift.value();
+                    QDomElement carried = payload.createElement(QStringLiteral("decor"));
+                    QDomElement moved = payload.createElement(QStringLiteral("g"));
+                    moved.setAttribute(QStringLiteral("transform"),
+                                       QStringLiteral("translate(%1,%2)")
+                                           .arg(QString::number(-back.x(), 'f', 3),
+                                                QString::number(-back.y(), 'f', 3)));
+                    for (QDomElement node = wrapper.value().firstChildElement(); !node.isNull();
+                         node = node.nextSiblingElement())
+                    {
+                        moved.appendChild(node.cloneNode(true));
+                    }
+                    carried.appendChild(moved);
+                    decorSource = carried;
+                    // ⚠️ **Rien à ajouter : la translation mesurée plus haut a déjà ramené le
+                    // dessin dans le repère des pièces, écart d'alignement compris.** La retrancher
+                    // une seconde fois décalait tout de 219 px en x à la taille 46 — mesuré.
+                    decorShift = QPointF();
+                }
+            }
+            // L'assise du décor de cette pièce POUR CETTE TAILLE — la même pour elle et pour son
+            // jumeau, qui est le même dessin retourné. Calculée avec le décor, plus bas.
+            QPointF decorSeatShift;
             {
                 PieceDecor one;
                 const QString groupId = element.attribute(QStringLiteral("group"));
@@ -1177,7 +1456,42 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     // « Devant x1 pli », il produisait 529,12 à la taille 46 là où le décalage correct
                     // est 0 — et il ne retombait juste qu'à la référence, où il redonne alignDelta par
                     // construction. C'est ce qui lui donnait l'air de marcher.
-                    QPointF decorShiftHere = alignDelta + decorShift;
+                    // ⚠️ **Le décor va là où la pièce est, et c'est tout.**
+                    //
+                    // Le dessin est le même octet pour les huit tailles (mesuré : un seul md5), écrit
+                    // dans le repère de la taille de RÉFÉRENCE. La pièce, elle, n'est pas au même
+                    // endroit selon la taille :
+                    //
+                    //   · pièce ordinaire — `outline + alignDelta` est INVARIANT (mesuré sur
+                    //     « Parementure manche » : x[4245,7 ; 4719,8] dans les huit tailles) ;
+                    //   · pièce AU PLI — il se déplace (mesuré sur « Devant » : le coin passe de
+                    //     1246,8 en 32 à 911,6 en 46, soit −37,8 px par taille), parce que la moitié
+                    //     grandit depuis son pli et que l'écart d'alignement ne la ramène pas.
+                    //
+                    // Une translation constante est donc juste pour l'une et fausse pour l'autre — et
+                    // c'est exactement ce qui se voyait : les pièces à pli décalaient, les autres non.
+                    // La seule valeur juste pour les deux est celle qui joint le coin de la référence
+                    // au coin de la pièce DE CETTE TAILLE : le décor est le même dessin, posé sur la
+                    // pièce que l'on regarde.
+                    QPointF currentCorner = alignDelta;
+                    if (!contour.isEmpty())
+                    {
+                        double x0 = contour.first().x();
+                        double y0 = contour.first().y();
+                        for (const QPointF &point : contour)
+                        {
+                            x0 = std::min(x0, point.x());
+                            y0 = std::min(y0, point.y());
+                        }
+                        currentCorner = QPointF(x0, y0);
+                    }
+                    QPointF decorShiftHere = decorShift;
+                    decorShiftHere += decorShared
+                                          ? currentCorner - referenceCorner.value(name, currentCorner)
+                                          : alignDelta;
+                    // Retenue pour le jumeau : le sien est ce MÊME dessin, retourné. Lui donner une
+                    // autre assise le décollerait de la pièce qu'il double.
+                    decorSeatShift = decorShiftHere;
                     if (!decorShiftHere.isNull())
                     {
                         one.content = QStringLiteral("<g transform=\"translate(%1,%2)\">")
@@ -1227,6 +1541,27 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 pose.hasGrainLine = true;
                 pose.grainA = QPointF(grainLine.at(0), grainLine.at(1)) + alignDelta;
                 pose.grainB = QPointF(grainLine.at(2), grainLine.at(3)) + alignDelta;
+            }
+
+            // ⚠️ **L'angle de la pièce vient de sa LIGNE, quand elle en porte une.**
+            //
+            // `grain` et `grainLine` sont deux écritures d'un même fait, et une pièce dont le
+            // droit-fil n'est pas à 90° les a montrées en désaccord : « Parementure manche x2 +
+            // entoilage » du patron d'essai porte `grain="135.000"` à côté d'une `grainLine` à
+            // **45°** et d'un tracé `ostara:grain` à **45°** — l'angle était le MIROIR de la ligne
+            // (`180 − 45`), et un plan qui épinglait la pièce sur lui la posait d'un quart de tour
+            // en travers du droit-fil.
+            //
+            // À 90°, un miroir vertical ne change rien (`180 − 90 = 90`) : le défaut est invisible
+            // sur toutes les pièces du patron sauf une, ce qui explique qu'il n'ait jamais été vu.
+            //
+            // La ligne, elle, est écrite MAPPÉE — comme le contour qu'elle traverse — et le tracé du
+            // décor vient de la même géométrie : deux sources sur trois disent 45°. On garde celle
+            // qui s'accorde avec le dessin. L'absence d'angle reste une absence : une pièce sans
+            // `grain` n'est pas épinglée par sa ligne.
+            if (pose.grainKnown && pose.hasGrainLine)
+            {
+                pose.grain = QLineF(pose.grainA, pose.grainB).angle();
             }
 
             // ── La quantité ─────────────────────────────────────────────────────────────────────
@@ -1299,10 +1634,71 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                     // ⚠️ **Et depuis la version 5, son dessin est celui de SA taille** : il prend donc
                     // l'écart de sa taille, exactement comme le bloc dont il est le miroir.
                     const QPointF twinShift =
-                        (decorPerSize ? alignDelta : referenceAlignDelta.value(name, alignDelta))
-                        + decorShift;
-                    if (ReadMirroredDecor(decorSource, twinShift, axisX, &mirroredOne))
+                        decorShared ? decorSeatShift
+                                    : (decorPerSize ? alignDelta
+                                                    : referenceAlignDelta.value(name, alignDelta))
+                                          + decorShift;
+                    // ⚠️ **Le jumeau est le décor de la POSE, retourné — pas l'élément brut.**
+                    //
+                    // `decorSource` est le dessin de la référence : le retourner puis le décaler
+                    // redonne une boîte qui ne bouge plus quand la pièce grandit (mesuré : décor fixe
+                    // à x 1246,8 de la 32 à la 46, alors que le bord de la pièce s'en allait de 37,8 px
+                    // par taille). Le jumeau décalait donc dès qu'on quittait la taille de référence.
+                    //
+                    // Le bloc de la pose est DÉJÀ posé pour cette taille (`one`, translation comprise).
+                    // On le prend tel quel et on le retourne : le miroir suit alors la pièce comme la
+                    // pose suit la sienne.
+                    const PieceDecor placedDecor = size.decor.value(name);
+                    QDomDocument placedDocument;
+                    const bool havePlaced =
+                        !placedDecor.content.isEmpty()
+                        && placedDocument.setContent(
+                            QStringLiteral("<decor xmlns:ostara=\"urn:ostara\">%1</decor>")
+                                .arg(placedDecor.content));
+                    bool haveTwin = false;
+                    if (havePlaced)
                     {
+                        haveTwin = ReadMirroredDecor(placedDocument.documentElement(), QPointF(),
+                                                     axisX, &mirroredOne);
+                    }
+                    else
+                    {
+                        haveTwin = ReadMirroredDecor(decorSource, twinShift, axisX, &mirroredOne);
+                    }
+                    if (haveTwin)
+                    {
+                        // ⚠️ **Le miroir est pris autour de l'axe du pli, et cet axe NE BOUGE PAS.**
+                        // La pièce, elle, grandit : son bord passe de 1246,8 en 32 à 911,5 en 46. Le
+                        // décor du jumeau restait donc accroché à un axe fixe pendant que la pièce
+                        // s'en allait — nul en 32, croissant ensuite, d'où « juste à la référence ».
+                        //
+                        // On lui rend le déplacement de SA pièce depuis la taille de référence : le
+                        // même delta pour la boîte et pour le contenu, pour qu'ils restent un dessin.
+                        if (decorShared && !twin.outline.isEmpty()
+                            && referenceCorner.contains(name))
+                        {
+                            double x0 = twin.outline.first().x();
+                            double y0 = twin.outline.first().y();
+                            for (const QPointF &point : twin.outline)
+                            {
+                                x0 = std::min(x0, point.x());
+                                y0 = std::min(y0, point.y());
+                            }
+                            const QPointF refPoseCorner = referenceCorner.value(name)
+                                                          + referenceAlignDelta.value(name, QPointF());
+                            // Seulement en x : le miroir ne touche que l’axe horizontal, et le
+                            // dessin de la pose porte déjà le déplacement vertical de la taille.
+                            const QPointF delta = QPointF(x0 - refPoseCorner.x(), 0.0);
+                            if (!delta.isNull())
+                            {
+                                mirroredOne.content =
+                                    QStringLiteral("<g transform=\"translate(%1,%2)\">")
+                                        .arg(QString::number(delta.x(), 'f', 3),
+                                             QString::number(delta.y(), 'f', 3))
+                                    + mirroredOne.content + QStringLiteral("</g>");
+                                mirroredOne.box.translate(delta);
+                            }
+                        }
                         size.decor.insert(twin.key, mirroredOne);
                     }
 
