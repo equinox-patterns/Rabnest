@@ -1442,6 +1442,9 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // What the block has to travel before it is in the piece's frame: the group's own origin
             // when the block is the group's, and nothing when it is the piece's.
             QPointF decorShift;
+            // Ce qu'il faut ajouter à l'ÉLÉMENT du décor (et non au bloc déjà posé) pour l'amener
+            // dans le repère des contours : l'origine du groupe, quand le bloc est le sien.
+            QPointF groupElementShift;
 
             // ── Le décor du DESSIN, quand le payload le porte ────────────────────────────────────
             //
@@ -1510,27 +1513,26 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 // pièce porte, c'est son propre dessin. Le groupe n'est qu'un dessin pour la sortie
                 // qui reproduit le document tel qu'il se lit, membres côte à côte.
                 //
-                // ⚠️ **Et depuis la version 5, le groupe n'a plus de bloc à lui.** Ostara écrit un
-                // `<decor>` PAR PIÈCE et PAR TAILLE : chaque membre porte sa part du dessin, dans le
-                // repère de son `outline`. Le bloc `<group><decor>` est alors un vestige de la 4, et le
-                // préférer au membre se paie deux fois — mesuré sur `32-46-160-A0Roll.pdf` :
-                // `Test` et `Dos x1 pli` recevaient le MÊME bloc (17 772 o), `Manche` et `Manche
-                // poignet` le même (165 013 o), posé de 2 900 px à côté de ses pièces sur le print.
-                // Le membre l'emporte donc dès que le payload écrit un décor par pièce.
-                const bool decorOnThePiece = decorPerSize || decorShared;
-                const bool groupWins = cloth == Cloth::AsDrawn && !decorOnThePiece
-                                       && groupWhole.value(groupId);
+                // ⚠️ **Et le groupe garde son bloc, même depuis la version 5.** Le payload porte
+                // toujours `<group id="679">` avec SON `<decor>` (vérifié : deux groupes dans
+                // `32-46-160-A0Roll.pdf`, chacun avec le sien), et c'est ce dessin-là qu'un groupe
+                // complet montre — un cartouche, un droit-fil, une fois. Un membre n'existe seul que
+                // lorsque le groupe ne l'est pas.
+                const bool groupWins = cloth == Cloth::AsDrawn && groupWhole.value(groupId);
                 const QDomElement own =
                     (!groupId.isEmpty() && groupWins) ? QDomElement() : decorSource;
                 if (!ReadDecor(own, &one, cloth == Cloth::AsDrawn) && cloth == Cloth::AsDrawn)
                 {
                     one = groupDecor.value(groupId);
                     decorSource = groupDecorSource.value(groupId);
-                    // ⚠️ The BLOCK is already in the outlines' frame — the group's origin was carried
-                    // into it once, when the group was read. The ELEMENT is not: a twin is re-laid from
-                    // the drawing, which is still in the group's own frame, so the origin travels with
-                    // it separately.
-                    decorShift = groupOrigin.value(groupId);
+                    // ⚠️ **Le BLOC est déjà dans le repère des contours** : l'origine du groupe y a été
+                    // portée une fois, quand le groupe a été lu. La rajouter ici la portait deux fois,
+                    // et c'est ce qui envoyait le bloc de « Manche » à 2 900 px de ses pièces sur le
+                    // print — mesuré. Rien à ajouter, donc.
+                    decorShift = QPointF();
+                    // L'ÉLÉMENT, lui, n'y est pas : le jumeau se re-lie au DESSIN, qui est resté dans
+                    // le repère du groupe. Son origine voyage donc séparément.
+                    groupElementShift = groupOrigin.value(groupId);
                 }
                 if (!one.content.isEmpty())
                 {
@@ -1752,7 +1754,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                         decorShared ? decorSeatShift
                                     : (decorPerSize ? alignDelta
                                                     : referenceAlignDelta.value(name, alignDelta))
-                                          + decorShift;
+                                          + decorShift + groupElementShift;
                     // ⚠️ **Le jumeau est le décor de la POSE, retourné — pas l'élément brut.**
                     //
                     // `decorSource` est le dessin de la référence : le retourner puis le décaler
