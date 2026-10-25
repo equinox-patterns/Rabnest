@@ -220,4 +220,10 @@
         <file alias="octogon.svg">icons/export/octogon.svg</file>
         <file alias="square.svg">icons/export/square.svg</file>
     </qresource>
+    <!-- Les textes de licence, tels quels : c'est la loi qui les veut complets, pas nous. -->
+    <qresource prefix="/licenses">
+        <file alias="GPL-3.0.txt">licenses/GPL-3.0.txt</file>
+        <file alias="phosphor-MIT.txt">licenses/phosphor-MIT.txt</file>
+        <file alias="inter-OFL.txt">licenses/inter-OFL.txt</file>
+    </qresource>
 </RCC>

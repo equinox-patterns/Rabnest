@@ -2,6 +2,79 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="el_GR">
     <context>
+        <name>AboutDialog</name>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="55" />
+            <source>About Rabnest</source>
+            <translation>Σχετικά με το Rabnest</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="96" />
+            <source>Copy the technical details</source>
+            <translation>Αντιγραφή τεχνικών λεπτομερειών</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="109" />
+            <source>Close</source>
+            <translation>Κλείσιμο</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="134" />
+            <source>Rabnest %1</source>
+            <translation>Rabnest %1</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="135" />
+            <source>Qt: built with %1, running %2</source>
+            <translation>Qt: κατασκευάστηκε με %1, εκτελείται %2</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="142" />
+            <source>Version %1</source>
+            <translation>Έκδοση %1</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="143" />
+            <source>A free program, published under the GNU General Public License, version 3 or later. It comes with no warranty of any kind.</source>
+            <translation>Ένα ελεύθερο πρόγραμμα, δημοσιευμένο υπό την GNU General Public License, έκδοση 3 ή νεότερη. Παρέχεται χωρίς καμία εγγύηση.</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Icons:</source>
+            <translation>Εικονίδια:</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Typeface:</source>
+            <translation>Γραμματοσειρά:</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Nesting:</source>
+            <translation>Φώλιασμα:</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Compression:</source>
+            <translation>Συμπίεση:</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Framework:</source>
+            <translation>Πλαίσιο:</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="158" />
+            <source>Technical details</source>
+            <translation>Τεχνικές λεπτομέρειες</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="102" />
+            <source>Licence texts</source>
+            <translation>Κείμενα αδειών</translation>
+        </message>
+    </context>
+    <context>
         <name>BusyDialog</name>
         <message>
             <location filename="../../src/app/busydialog.cpp" line="63" />
@@ -567,6 +640,24 @@
         </message>
     </context>
     <context>
+        <name>LicenceDialog</name>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="45" />
+            <source>The licence text is missing from this build.</source>
+            <translation>Το κείμενο της άδειας λείπει από αυτή την κατασκευή.</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="62" />
+            <source>Licence texts</source>
+            <translation>Κείμενα αδειών</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="78" />
+            <source>Close</source>
+            <translation>Κλείσιμο</translation>
+        </message>
+    </context>
+    <context>
         <name>OExportMarkSettings</name>
         <message>
             <location filename="../../src/core/print/exportmarksettings.cpp" line="37" />
@@ -1066,7 +1157,7 @@
     <context>
         <name>QCoreApplication</name>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="831" />
             <location filename="../../src/app/workspacepage.cpp" line="1367" />
             <source>Unknown format</source>
             <translation>Άγνωστη μορφή</translation>
@@ -1295,88 +1386,98 @@
     <context>
         <name>RabnestWindow</name>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="119" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="120" />
             <source>%1 to %2</source>
             <translation>%1 έως %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="167" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="168" />
             <source>%1 or %2</source>
             <translation>%1 ή %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="267" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="326" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="268" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="352" />
             <source>Languages</source>
             <translation>Γλώσσες</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="469" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="295" />
+            <source>About Rabnest</source>
+            <translation>Σχετικά με το Rabnest</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/rabnestwindow.cpp" line="303" />
+            <source>Help</source>
+            <translation>Βοήθεια</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/rabnestwindow.cpp" line="495" />
             <source>Print the cutting plan</source>
             <translation>Εκτύπωση του σχεδίου κοπής</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="482" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="501" />
             <location filename="../../src/app/rabnestwindow.cpp" line="508" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="573" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="625" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="639" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="659" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1027" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1059" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="534" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="599" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="651" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="665" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="685" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1053" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1085" />
             <source>Print</source>
             <translation>Εκτύπωση</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="482" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="508" />
             <source>This printer reports no printable area.</source>
             <translation>Αυτός ο εκτυπωτής δεν δηλώνει εκτυπώσιμη περιοχή.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="501" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
             <source>The plan does not fit on that page.</source>
             <translation>Το σχέδιο δεν χωράει σε αυτή τη σελίδα.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="508" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="534" />
             <source>The printer could not be opened.</source>
             <translation>Ο εκτυπωτής δεν μπορούσε να ανοίξει.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="553" />
             <source>%1 - Cutting plan: fabric width %2 / %3 inches, length %4 / %5 yards</source>
             <translation>%1 - Σχέδιο κοπής: πλάτος υφάσματος %2 / %3 ίντσες, μήκος %4 / %5 γιάρδες</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="528" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="530" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="554" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="556" />
             <source>%1 cm</source>
             <translation>%1 cm</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="537" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="563" />
             <source>Scale 1:%1</source>
             <translation>Κλίμακα 1:%1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="574" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="600" />
             <source>This run is %1 × %2 mm per sheet, and no sheet of paper holds it whole. Export it as a PDF and print it from there.</source>
             <translation>Αυτό το run είναι %1 × %2 mm ανά φύλλο και κανένα φύλλο χαρτιού δεν το χωράει ολόκληρο. Εξαγάγετέ το ως PDF και εκτυπώστε το από εκεί.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="611" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="637" />
             <source>Print the print run</source>
             <translation>Εκτύπωση του run</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="626" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="652" />
             <source>These sheets are %1 × %2 mm, and this run prints on %3 only. Nothing was printed.</source>
             <translation>Αυτά τα φύλλα είναι %1 × %2 mm και αυτό το run εκτυπώνεται μόνο σε %3. Δεν εκτυπώθηκε τίποτα.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="640" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="756" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="666" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="782" />
             <source>The PDF this print was laid from can no longer be read:
 %1
 
@@ -1387,51 +1488,51 @@
 %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="718" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="726" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="755" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="775" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="779" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1233" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1250" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1254" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="744" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="752" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="781" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="801" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1259" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1276" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1280" />
             <source>Export</source>
             <translation>Εξαγωγή</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="719" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="745" />
             <source>The file could not be written:
 %1</source>
             <translation>Το αρχείο δεν μπορούσε να γραφτεί:
 %1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="726" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="779" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1254" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="752" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1280" />
             <source>File written:
 %1</source>
             <translation>Το αρχείο γράφτηκε:
 %1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="841" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="867" />
             <source>Plan</source>
             <translation>Σχέδιο</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="842" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="868" />
             <source>Projection, one page at 1:1</source>
             <translation>Προβολή, μία σελίδα σε 1:1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="878" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="884" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="904" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="910" />
             <source>Back to home</source>
             <translation>Επιστροφή στην αρχή</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="879" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="905" />
             <source>Every output of "%1" will be lost.
 
 Make sure you have exported or printed everything you need.</source>
@@ -1440,38 +1541,38 @@ Make sure you have exported or printed everything you need.</source>
 Βεβαιωθείτε ότι έχετε εξαγάγει ή εκτυπώσει ό,τι χρειάζεστε.</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1027" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1053" />
             <source>Laying the print out…</source>
             <translation>Τοποθέτηση της εκτύπωσης…</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1098" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1124" />
             <source>%1 - %2</source>
             <translation>%1 - %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1144" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1174" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1170" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1200" />
             <source>Projector</source>
             <translation>Προβολέας</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1144" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1170" />
             <source>Looking for the smallest page…</source>
             <translation>Αναζήτηση της μικρότερης σελίδας…</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1188" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1214" />
             <source>All sizes</source>
             <translation>Όλα τα μεγέθη</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1219" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1245" />
             <source>Export the projection as PDF</source>
             <translation>Εξαγωγή της προβολής σε PDF</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1234" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1260" />
             <source>The PDF this projection was laid from can no longer be read:
 %1
 

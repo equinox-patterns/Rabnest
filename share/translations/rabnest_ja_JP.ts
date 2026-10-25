@@ -2,6 +2,79 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ja_JP">
     <context>
+        <name>AboutDialog</name>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="55" />
+            <source>About Rabnest</source>
+            <translation>Rabnest について</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="96" />
+            <source>Copy the technical details</source>
+            <translation>技術情報をコピー</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="109" />
+            <source>Close</source>
+            <translation>閉じる</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="134" />
+            <source>Rabnest %1</source>
+            <translation>Rabnest %1</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="135" />
+            <source>Qt: built with %1, running %2</source>
+            <translation>Qt：ビルド %1、実行中 %2</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="142" />
+            <source>Version %1</source>
+            <translation>バージョン %1</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="143" />
+            <source>A free program, published under the GNU General Public License, version 3 or later. It comes with no warranty of any kind.</source>
+            <translation>GNU General Public License バージョン 3 以降で公開されている自由なソフトウェアです。いかなる保証もありません。</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Icons:</source>
+            <translation>アイコン：</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Typeface:</source>
+            <translation>書体：</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Nesting:</source>
+            <translation>ネスティング：</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Compression:</source>
+            <translation>圧縮：</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="154" />
+            <source>Framework:</source>
+            <translation>フレームワーク：</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="158" />
+            <source>Technical details</source>
+            <translation>技術情報</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/aboutdialog.cpp" line="102" />
+            <source>Licence texts</source>
+            <translation>ライセンス全文</translation>
+        </message>
+    </context>
+    <context>
         <name>BusyDialog</name>
         <message>
             <location filename="../../src/app/busydialog.cpp" line="63" />
@@ -567,6 +640,24 @@
         </message>
     </context>
     <context>
+        <name>LicenceDialog</name>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="45" />
+            <source>The licence text is missing from this build.</source>
+            <translation>このビルドにはライセンス全文が含まれていません。</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="62" />
+            <source>Licence texts</source>
+            <translation>ライセンス全文</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/licencedialog.cpp" line="78" />
+            <source>Close</source>
+            <translation>閉じる</translation>
+        </message>
+    </context>
+    <context>
         <name>OExportMarkSettings</name>
         <message>
             <location filename="../../src/core/print/exportmarksettings.cpp" line="37" />
@@ -1062,7 +1153,7 @@
     <context>
         <name>QCoreApplication</name>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="831" />
             <location filename="../../src/app/workspacepage.cpp" line="1367" />
             <source>Unknown format</source>
             <translation>不明な形式</translation>
@@ -1291,88 +1382,98 @@
     <context>
         <name>RabnestWindow</name>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="119" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="120" />
             <source>%1 to %2</source>
             <translation>%1 〜 %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="167" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="168" />
             <source>%1 or %2</source>
             <translation>%1 または %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="267" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="326" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="268" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="352" />
             <source>Languages</source>
             <translation>言語</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="469" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="295" />
+            <source>About Rabnest</source>
+            <translation>Rabnest について</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/rabnestwindow.cpp" line="303" />
+            <source>Help</source>
+            <translation>ヘルプ</translation>
+        </message>
+        <message>
+            <location filename="../../src/app/rabnestwindow.cpp" line="495" />
             <source>Print the cutting plan</source>
             <translation>裁断計画を印刷</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="482" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="501" />
             <location filename="../../src/app/rabnestwindow.cpp" line="508" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="573" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="625" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="639" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="659" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1027" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1059" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="534" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="599" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="651" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="665" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="685" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1053" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1085" />
             <source>Print</source>
             <translation>印刷</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="482" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="508" />
             <source>This printer reports no printable area.</source>
             <translation>このプリンターは印刷可能領域を報告していません。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="501" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
             <source>The plan does not fit on that page.</source>
             <translation>計画はそのページに収まりません。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="508" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="534" />
             <source>The printer could not be opened.</source>
             <translation>プリンターを開けませんでした。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="527" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="553" />
             <source>%1 - Cutting plan: fabric width %2 / %3 inches, length %4 / %5 yards</source>
             <translation>%1 - 裁断計画：生地幅 %2 / %3 インチ、長さ %4 / %5 ヤード</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="528" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="530" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="554" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="556" />
             <source>%1 cm</source>
             <translation>%1 cm</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="537" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="563" />
             <source>Scale 1:%1</source>
             <translation>縮尺 1:%1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="574" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="600" />
             <source>This run is %1 × %2 mm per sheet, and no sheet of paper holds it whole. Export it as a PDF and print it from there.</source>
             <translation>この run は 1 シートあたり %1 × %2 mm で、全体を収められる紙のシートがありません。PDF としてエクスポートし、そこから印刷してください。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="611" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="637" />
             <source>Print the print run</source>
             <translation>run を印刷</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="626" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="652" />
             <source>These sheets are %1 × %2 mm, and this run prints on %3 only. Nothing was printed.</source>
             <translation>このシートは %1 × %2 mm で、この run は %3 にしか印刷できません。何も印刷されませんでした。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="640" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="756" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="666" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="782" />
             <source>The PDF this print was laid from can no longer be read:
 %1
 
@@ -1383,51 +1484,51 @@
 %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="718" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="726" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="755" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="775" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="779" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1233" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1250" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1254" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="744" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="752" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="781" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="801" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1259" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1276" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1280" />
             <source>Export</source>
             <translation>エクスポート</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="719" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="745" />
             <source>The file could not be written:
 %1</source>
             <translation>ファイルを書き出せませんでした：
 %1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="726" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="779" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1254" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="752" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="805" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1280" />
             <source>File written:
 %1</source>
             <translation>ファイルを書き出しました：
 %1</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="841" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="867" />
             <source>Plan</source>
             <translation>計画</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="842" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="868" />
             <source>Projection, one page at 1:1</source>
             <translation>投影、1:1 の 1 ページ</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="878" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="884" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="904" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="910" />
             <source>Back to home</source>
             <translation>ホームに戻る</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="879" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="905" />
             <source>Every output of "%1" will be lost.
 
 Make sure you have exported or printed everything you need.</source>
@@ -1436,38 +1537,38 @@ Make sure you have exported or printed everything you need.</source>
 必要なものはすべてエクスポートまたは印刷したか確認してください。</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1027" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1053" />
             <source>Laying the print out…</source>
             <translation>印刷を配置しています…</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1098" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1124" />
             <source>%1 - %2</source>
             <translation>%1 - %2</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1144" />
-            <location filename="../../src/app/rabnestwindow.cpp" line="1174" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1170" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1200" />
             <source>Projector</source>
             <translation>プロジェクター</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1144" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1170" />
             <source>Looking for the smallest page…</source>
             <translation>最小のページを探しています…</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1188" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1214" />
             <source>All sizes</source>
             <translation>すべてのサイズ</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1219" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1245" />
             <source>Export the projection as PDF</source>
             <translation>投影を PDF としてエクスポート</translation>
         </message>
         <message>
-            <location filename="../../src/app/rabnestwindow.cpp" line="1234" />
+            <location filename="../../src/app/rabnestwindow.cpp" line="1260" />
             <source>The PDF this projection was laid from can no longer be read:
 %1
 

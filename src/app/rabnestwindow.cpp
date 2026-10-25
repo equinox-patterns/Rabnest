@@ -31,6 +31,7 @@
 #include "app/busydialog.h"
 #include "app/importoverlay.h"
 #include "app/exportimagedialog.h"
+#include "app/aboutdialog.h"
 #include "app/exportpdfdialog.h"
 #include "app/outputinfodialog.h"
 #include "app/printplandialog.h"
@@ -283,6 +284,31 @@ void RabnestWindow::BuildMenu()
         const QString code = language.code;
         connect(action, &QAction::triggered, this, [this, code] { ChooseLanguage(code); });
     }
+
+    // ── À propos ────────────────────────────────────────────────────────────────────────────────
+    //
+    // **Le rôle fait le travail, pas le menu.** Sur macOS le menu qui porte le nom de l'application
+    // appartient au système : « About Rabnest » y est déjà, et Qt redirige ce clic vers l'action qui
+    // porte `AboutRole` au lieu d'ouvrir le panneau standard. L'action voyage donc dans le menu
+    // Langues pour être trouvée par Qt, qui l'en retire ; ailleurs, où il n'existe pas de menu
+    // d'application, elle a un menu à elle.
+    auto *about = new QAction(tr("About Rabnest"), this);
+    about->setMenuRole(QAction::AboutRole);
+    connect(about, &QAction::triggered, this, &RabnestWindow::ShowAbout);
+
+#ifdef Q_OS_MACOS
+    m_languageMenu->addSeparator();
+    m_languageMenu->addAction(about);
+#else
+    menuBar()->addMenu(tr("Help"))->addAction(about);
+#endif
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::ShowAbout()
+{
+    AboutDialog dialog(this);
+    dialog.exec();
 }
 
 //---------------------------------------------------------------------------------------------------------------------

@@ -33,6 +33,10 @@ set(CMAKE_AUTORCC ON)
 
 add_executable(Rabnest MACOSX_BUNDLE
     src/main.cpp
+    src/app/aboutdialog.cpp
+    src/app/aboutdialog.h
+    src/app/licencedialog.cpp
+    src/app/licencedialog.h
     src/app/checklistpage.cpp
     src/app/checklistpage.h
     src/app/importpage.cpp
@@ -137,9 +141,28 @@ set_target_properties(Rabnest PROPERTIES
 # src/ local : NestingDialog.cpp fait #include "ui/NestingDialog.h"
 target_include_directories(Rabnest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+
 # Trame apporte ${Trame}/src + Qt6::Core/Xml + Clipper2 en PUBLIC, et
 # Qt6::Svg/PrintSupport/Gui + ZLIB en PRIVATE (remontés sur la ligne de link
 # d'une bibliothèque statique). Rien à répéter ici.
+# Les textes de licence, en VRAIS fichiers dans le paquet, à côté de leur copie embarquée dans le
+# binaire. La licence MIT des icônes et la SIL Open Font License de la police exigent l'une et
+# l'autre que leur texte accompagne l'application ; l'OFL dit même explicitement que des fichiers
+# texte séparés suffisent. Le dialogue les lit dans le binaire, ces fichiers sont là pour la lettre
+# de la licence — et pour qui veut les lire sans ouvrir l'application.
+if(APPLE)
+    add_custom_command(TARGET Rabnest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources/licenses"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/GPL-3.0.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/phosphor-MIT.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/inter-OFL.txt"
+            "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources/licenses"
+        COMMENT "Textes de licence dans le paquet"
+        VERBATIM)
+endif()
+
 target_link_libraries(Rabnest PRIVATE
     Trame
     Qt6::Widgets

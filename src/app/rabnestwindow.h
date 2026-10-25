@@ -82,6 +82,9 @@ private:
     void BuildMenu();
     void ChooseLanguage(const QString &code);
 
+    /// « À propos » — what Rabnest is, its copyright, what it owes, and the versions under it.
+    void ShowAbout();
+
     /// Sets again every text of this window that a change of language must move.
     void Retranslate();
 
