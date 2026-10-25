@@ -514,7 +514,36 @@ auto WriteNode(QXmlStreamWriter &writer, const QDomNode &node) -> void
 /// undone, because no matrix is applied: Ostara writes the ink in the owner's own frame, the one its
 /// outline travels in. An empty or degenerate block is reported as absent, never as an empty drawing
 /// that would then be placed and drawn nowhere.
-auto ReadDecor(const QDomElement &decorElement, PieceDecor *out) -> bool
+/// La miniature, telle que le payload l'écrit : un chemin TRACÉ et non rempli, sans marque.
+///
+/// **Ostara ne marque que le droit-fil et le pli** (`ostara:grain`, `ostara:fold`). La miniature est
+/// écrite par le bloc d'informations comme un seul chemin absolu, `fill="none" stroke="black"`, et ses
+/// mots dans un groupe à part — il n'y a donc aucun attribut sur lequel la reconnaître, seulement sa
+/// forme. Vérifié sur `32-46-160-A0Roll.pdf` : quatre pièces en portent une (« Devant x1 pli », « Dos
+/// x1 pli », « Manche poignet », « Parementure devant x1 pli »), et c'est chaque fois le SEUL élément
+/// du bloc dans ce cas — tous les autres sont remplis (texte, cartouche, logo) ou marqués.
+///
+/// ⚠️ **Point ouvert : un marqueur vaudrait mieux que cette forme.** Ostara sait qu'elle écrit une
+/// miniature (`WriteMiniature`) ; le jour où elle le dira dans le fichier, cette fonction disparaîtra.
+auto IsMiniature(const QDomElement &element) -> bool
+{
+    if (element.tagName() != QLatin1String("path"))
+    {
+        return false;
+    }
+    if (element.hasAttribute(QStringLiteral("ostara:grain"))
+        || element.hasAttribute(QStringLiteral("ostara:fold")))
+    {
+        return false;
+    }
+
+    const QString fill = element.attribute(QStringLiteral("fill"));
+    const QString stroke = element.attribute(QStringLiteral("stroke"));
+    return (fill.isEmpty() || fill == QLatin1String("none")) && !stroke.isEmpty()
+           && stroke != QLatin1String("none");
+}
+
+auto ReadDecor(const QDomElement &decorElement, PieceDecor *out, bool withMiniature = true) -> bool
 {
     if (out == nullptr || decorElement.isNull())
     {
@@ -525,9 +554,36 @@ auto ReadDecor(const QDomElement &decorElement, PieceDecor *out) -> bool
     QXmlStreamWriter writer(&content);
     GrowingBox box;
 
+    QVector<QDomElement> children;
     for (QDomElement child = decorElement.firstChildElement(); !child.isNull();
          child = child.nextSiblingElement())
     {
+        children.append(child);
+    }
+
+    for (int index = 0; index < children.size(); ++index)
+    {
+        const QDomElement child = children.at(index);
+
+        // ⚠️ **Une miniature ne sert à rien sur un plan de coupe, et elle y sort de sa pièce.**
+        // Décision de Sophie (25-10-2026) : son placement n'est pas prévu pour le miroir, donc une
+        // pièce retournée la fait déborder. Le print la garde — c'est le document.
+        if (!withMiniature && IsMiniature(child))
+        {
+            // ⚠️ **Et ses MOTS partent avec son dessin.** Le bloc d'informations écrit le dessin de
+            // la miniature, puis ses valeurs dans un groupe à part, juste après lui — laisser le
+            // groupe ferait flotter les chiffres d'une miniature qui n'est plus là (constaté sur le
+            // plan de coupe : le dessin parti, les textes restés). Les miniatures ferment les
+            // enregistrements (`WriteMiniature` est appelé en dernier), donc le groupe qui suit un
+            // dessin de miniature est le sien et rien d'autre.
+            if (index + 1 < children.size()
+                && children.at(index + 1).tagName() == QLatin1String("g"))
+            {
+                ++index;
+            }
+            continue;
+        }
+
         WriteNode(writer, child);
         DecorBox(child, Matrix{}, &box);
     }
@@ -1186,7 +1242,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
         const QString id = group.attribute(QStringLiteral("id"));
         PieceDecor one;
         const QDomElement element = group.firstChildElement(QStringLiteral("decor"));
-        if (!ReadDecor(element, &one))
+        if (!ReadDecor(element, &one, cloth == Cloth::AsDrawn))
         {
             continue;
         }
@@ -1466,7 +1522,7 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                                        && groupWhole.value(groupId);
                 const QDomElement own =
                     (!groupId.isEmpty() && groupWins) ? QDomElement() : decorSource;
-                if (!ReadDecor(own, &one) && cloth == Cloth::AsDrawn)
+                if (!ReadDecor(own, &one, cloth == Cloth::AsDrawn) && cloth == Cloth::AsDrawn)
                 {
                     one = groupDecor.value(groupId);
                     decorSource = groupDecorSource.value(groupId);
