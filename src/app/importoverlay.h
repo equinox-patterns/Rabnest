@@ -83,7 +83,10 @@ signals:
     ///
     /// The two lists are APART and not interleaved: a cutting plan is a cloth, and the row of the
     /// dock is the size. The window keeps the second beside the first, under the same row.
-    void Finished(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining);
+    /// @p reduced says the journey wrote the PDF back with fewer layers and has nothing to show:
+    /// a document that is not Ostara's holds no plan, no size and no piece for this window.
+    void Finished(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining,
+                  bool reduced = false);
 
     /// The Print tab asked to generate: the sizes it ticked, and the paper it chose. The window
     /// lays the run out, because the print needs the document and the settings of the panel it
@@ -116,7 +119,8 @@ private:
     void Generate();
     void ReduceLayers(const QString &target);
     void ShowPage(QWidget *page);
-    void Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining);
+    void Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining,
+                bool reduced = false);
     void Retranslate();
 
     BusyDialog *m_busy = nullptr;

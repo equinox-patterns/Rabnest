@@ -896,11 +896,16 @@ void RabnestWindow::ShowOutputInfo(int index)
 //---------------------------------------------------------------------------------------------------------------------
 void RabnestWindow::BackHome()
 {
-    // What is lost, named: the PDF she imported, not « the current file ».
-    const QString file = QFileInfo(m_document.path()).fileName();
+    // ⚠️ **The question is asked only when there IS something to lose.** `isValid()` is true of a
+    // document nobody imported — it only says no error was recorded — so the window used to promise
+    // the loss of plans, rows and a drawing that had never existed.
+    const bool hasWork = !m_plans.isEmpty() || !m_document.path().isEmpty();
 
-    if (m_document.isValid())
+    if (hasWork)
     {
+        // What is lost, named: the PDF she imported, not « the current file ».
+        const QString file = QFileInfo(m_document.path()).fileName();
+
         QMessageBox question(QMessageBox::Question, tr("Back to home"),
                              tr("Every output of \"%1\" will be lost.\n\n"
                                 "Make sure you have exported or printed everything you need.")
@@ -915,6 +920,13 @@ void RabnestWindow::BackHome()
         }
     }
 
+    CloseDocument();
+    OpenOverlay(false);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void RabnestWindow::CloseDocument()
+{
     // Nothing of the previous PDF survives: not the plans, not the rows, not the drawing, not the
     // document the next output would have been generated from.
     m_plans.clear();
@@ -930,8 +942,6 @@ void RabnestWindow::BackHome()
 
     // The print panel belonged to a document that no longer exists.
     m_printIndex = -1;
-
-    OpenOverlay(false);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -960,7 +970,7 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
     connect(m_overlay, &ImportOverlay::ProjectorRequested, this, &RabnestWindow::GenerateProjector);
 
     connect(m_overlay, &ImportOverlay::Finished, this,
-            [this](const QVector<CutPlan> &plans, const QVector<CutPlan> &lining) {
+            [this](const QVector<CutPlan> &plans, const QVector<CutPlan> &lining, bool reduced) {
         // The pattern the journey settled is kept BEFORE the panel dies: laying the same pieces out
         // on another cloth is the next thing she may want, and it must not cost another import.
         if (!plans.isEmpty() && m_overlay->document().isValid())
@@ -973,6 +983,17 @@ void RabnestWindow::OpenOverlay(bool generateFromDocument)
 
         m_overlay->deleteLater();
         m_overlay = nullptr;
+
+        // ⚠️ **Un PDF qui n'est pas d'Ostara n'a rien à faire sur la fenêtre principale.** Le réduire
+        // rend un fichier et rien d'autre : ni plan à dessiner, ni taille, ni pièce, donc ni sortie à
+        // garder. Laisser la fenêtre là n'offrirait qu'une « Back to home » qui propose de perdre ce
+        // qui n'existe pas. L'application revient donc à « import a PDF », sans question.
+        if (reduced)
+        {
+            CloseDocument();
+            QTimer::singleShot(0, this, [this] { OpenOverlay(false); });
+            return;
+        }
 
         // The dock selects the row it just added, and the selection is what puts a plan on the
         // canvas: one path to the screen, so the list and the drawing cannot disagree.

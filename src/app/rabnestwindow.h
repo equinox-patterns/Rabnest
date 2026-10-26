@@ -114,6 +114,10 @@ private:
     void PrintPrintOutput(int index);
     void ShowOutputInfo(int index);
     void BackHome();
+
+    /// Throws the PDF away — plans, rows, drawing, and the document the next output would have been
+    /// generated from. It asks nothing: the caller decides whether there is something to lose.
+    void CloseDocument();
     void OpenOverlay(bool generateFromDocument);
 
     /// The dock's printer icon: the print panel comes up, and the canvas shows the print run of

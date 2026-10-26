@@ -206,9 +206,9 @@ void ImportOverlay::keyPressEvent(QKeyEvent *event)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void ImportOverlay::Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining)
+void ImportOverlay::Finish(const QVector<CutPlan> &plans, const QVector<CutPlan> &lining, bool reduced)
 {
-    emit Finished(plans, lining);
+    emit Finished(plans, lining, reduced);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -557,5 +557,7 @@ void ImportOverlay::ReduceLayers(const QString &target)
     }
 
     QMessageBox::information(this, QStringLiteral("Rabnest"), tr("File written: %1").arg(target));
-    Finish({}, {});
+
+    // The file is written and there is nothing to show: the window goes back to « import a PDF ».
+    Finish({}, {}, true);
 }
