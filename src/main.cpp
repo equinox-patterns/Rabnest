@@ -59,9 +59,18 @@ int main(int argc, char *argv[])
     // drawn with a default it will not keep.
     RabnestTheme::Apply();
 
-    // The window and task bar icon. macOS ignores it — it reads the bundle's .icns — but Windows and
-    // Linux take it here, and without it a binary launched by hand has the generic system icon.
+    // The window and task bar icon, for Windows and Linux: without it a binary launched by hand has
+    // the generic system icon.
+    //
+    // ⚠️ **NOT on macOS, and the old comment here was wrong.** `setWindowIcon()` does not get
+    // ignored: Qt's Cocoa plugin calls `[NSApp setApplicationIconImage:]`, so the Dock tile becomes
+    // the rasterised SVG — full-bleed, outside the bundle's `.icns` and outside Apple's icon grid,
+    // which is why Rabnest looked bigger than every other app in the Dock. macOS reads the bundle's
+    // `.icns` only when nothing sets an application icon, and that is what Ostara already does
+    // (`#if !defined(Q_OS_MAC)` in its `main.cpp`).
+#if !defined(Q_OS_MAC)
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/app/rabnest.svg")));
+#endif // !defined(Q_OS_MAC)
 
     RabnestWindow window;
     window.show();
