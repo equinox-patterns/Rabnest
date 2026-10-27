@@ -195,6 +195,9 @@ if(APPLE)
             "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/GPL-3.0.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/phosphor-MIT.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/inter-OFL.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/clipper2-BSL-1.0.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/zlib.txt"
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/LGPL-3.0.txt"
             "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources/licenses"
         COMMENT "Textes de licence dans le paquet"
         VERBATIM)

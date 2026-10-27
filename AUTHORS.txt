@@ -1,0 +1,38 @@
+This file lists the people who have contributed to the Rabnest project.
+
+================================================================================
+RABNEST
+================================================================================
+
+Author and maintainer:
+	Sophie Denys <contact@sophiedenys.com>
+		* Design.
+		* Development.
+		* Documentation.
+
+Rabnest is licensed under the GNU General Public License, version 3 or later —
+see LICENSE. It is built on Trame, its nesting engine, written by the same
+author, and on Qt.
+
+================================================================================
+COMPONENTS
+================================================================================
+
+Rabnest embeds or links the following third-party work. Their authors keep
+their own copyright; the licence of each one is in `share/licenses/`.
+
+	Clipper2 — Angus Johnson and contributors
+		Boost Software License 1.0.
+		Polygon clipping, reached through Trame.
+
+	Phosphor Icons — Tobias Fried and Helena Zhang
+		MIT.
+
+	Inter — Rasmus Andersson (The Inter Project Authors)
+		SIL Open Font License 1.1.
+
+	zlib — Jean-loup Gailly and Mark Adler
+		zlib License.
+
+	Qt — The Qt Company
+		LGPLv3.

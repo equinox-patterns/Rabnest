@@ -89,9 +89,15 @@ LicenceDialog::LicenceDialog(QWidget *parent) : QDialog(parent)
     // dans l'ordre où ils apparaissent dans la fiche.
     m_body->setHtml(QStringLiteral("<h3>Rabnest — GNU General Public License 3</h3>%1"
                                   "<h3>Phosphor Icons — MIT</h3>%2"
-                                  "<h3>Inter — SIL Open Font License 1.1</h3>%3")
+                                  "<h3>Inter — SIL Open Font License 1.1</h3>%3"
+                                  "<h3>Clipper2 — Boost Software License 1.0</h3>%4"
+                                  "<h3>zlib — zlib License</h3>%5"
+                                  "<h3>Qt — GNU Lesser General Public License 3</h3>%6")
                         .arg(Block(Text(QStringLiteral("GPL-3.0.txt"))),
                              Block(Text(QStringLiteral("phosphor-MIT.txt"))),
-                             Block(Text(QStringLiteral("inter-OFL.txt")))));
+                             Block(Text(QStringLiteral("inter-OFL.txt"))),
+                             Block(Text(QStringLiteral("clipper2-BSL-1.0.txt"))),
+                             Block(Text(QStringLiteral("zlib.txt"))),
+                             Block(Text(QStringLiteral("LGPL-3.0.txt")))));
     m_body->verticalScrollBar()->setValue(0);
 }
