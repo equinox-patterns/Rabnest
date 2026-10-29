@@ -315,6 +315,74 @@ auto ImportedDocument::Pieces(const QStringList &sizeLayerIds) const -> QStringL
     }
 
     const QDomElement root = svg.documentElement();
+
+    // ── Les pièces telles que le payload les NOMME ──────────────────────────────────────────────
+    //
+    // ⚠️ **La liste se lisait dans le DESSIN, et le dessin nomme une pièce DEUX fois.** Ostara écrit
+    // chaque membre d'un groupe deux fois dans une couche de taille : une fois imbriqué dans le
+    // wrapper du groupe — la vue du groupe, membres superposés là où le groupe les tient — et une
+    // fois à plat, portant `ostara:id`, qui est la pièce elle-même et celle que le décor accompagne.
+    // La seconde ne peut pas reprendre l'id de la première, donc le dédoublonnage par couche
+    // d'Ostara la suffixe (`Manche` et `Manche_1`) : un lecteur qui listait les `<g>` enfants
+    // directs offrait les deux, et cocher la mauvaise ne planifiait rien du tout — `Manche_1` ne
+    // correspond à aucune `<piece name>`.
+    //
+    // ⚠️ **Et les ids du dessin ne sont pas des noms.** Ostara les slugue (`OSvg::SanitizeSvgId`) :
+    // tout caractère qui n'est ni lettre, ni chiffre, ni `_`, ni `-` devient un souligné — « Manche
+    // poignet » se dessine `Manche_poignet`, « Poignet x2 + entoilage » devient
+    // `Poignet_x2___entoilage`. Le nom lisible n'existe QUE dans `<piece name="…">`, et c'est
+    // exactement celui que `Pattern::Load` reprend tel quel (`kept.contains(name)`). On le lit là :
+    // rien à dé-sluguer, rien à deviner.
+    //
+    // Les pièces se nomment par le LABEL de leur taille, et les tailles gardées se nomment par l'id
+    // de leur couche : les deux vocabulaires se rejoignent ici, une fois. Un écrivain plus ancien y
+    // mettait la valeur d'axe nue — « 32 » —, d'où le suffixe accepté, comme dans `Pattern::Load`.
+    QStringList labels;
+    for (const ImportedLayer &layer : m_layers)
+    {
+        if (sizeLayerIds.contains(layer.id))
+        {
+            labels.append(layer.label);
+        }
+    }
+
+    const QDomElement carried =
+        root.firstChildElement(QStringLiteral("metadata")).firstChildElement(QStringLiteral("pieces"));
+    for (QDomElement piece = carried.firstChildElement(QStringLiteral("piece")); !piece.isNull();
+         piece = piece.nextSiblingElement(QStringLiteral("piece")))
+    {
+        const QString size = piece.attribute(QStringLiteral("size"));
+        bool keptSize = false;
+        for (const QString &label : labels)
+        {
+            if (label == size || label.endsWith(QLatin1String(" ") + size))
+            {
+                keptSize = true;
+                break;
+            }
+        }
+        if (!keptSize)
+        {
+            continue;
+        }
+
+        const QString name = piece.attribute(QStringLiteral("name"));
+        if (name.isEmpty() || pieces.contains(name))
+        {
+            continue;
+        }
+        pieces.append(name);
+    }
+
+    if (!pieces.isEmpty())
+    {
+        return pieces;
+    }
+
+    // ── Le DESSIN, pour un payload qui ne nomme aucune pièce ────────────────────────────────────
+    //
+    // A file written before the payload carried a name has nothing to read above. Its pieces are
+    // then the drawing's objects, ids and all — worse to read, never wrong about which piece it is.
     for (QDomElement layer = root.firstChildElement(); !layer.isNull();
          layer = layer.nextSiblingElement())
     {

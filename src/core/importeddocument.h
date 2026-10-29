@@ -108,6 +108,12 @@ public:
 
     /// The pieces the chosen size layers hold, by name, in the order they first appear.
     ///
+    /// The names are the PAYLOAD's own (`<piece name="…">`), never the drawing's ids: Ostara slugs
+    /// those — « Manche poignet » is drawn `Manche_poignet` — and writes every member of a group
+    /// twice in a size layer, the second copy suffixed by its per-layer id deduplication. A reader
+    /// that listed the drawing therefore offered `Manche` AND `Manche_1`: the same piece twice, and
+    /// the suffixed one matches no `<piece name>` at all, so its tick was inert.
+    ///
     /// A union and not an intersection: a piece missing from one size — a variant, a graded block
     /// that does not exist there — is still a piece of the pattern, and hiding it would silently
     /// drop what the creator drew. The user ticks what they want; the sizes that lack it simply
