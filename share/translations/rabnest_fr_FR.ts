@@ -489,6 +489,34 @@
     </message>
 </context>
 <context>
+    <name>GroupOverlapDialog</name>
+    <message>
+        <location filename="../../src/ui/GroupOverlapDialog.cpp" line="41"/>
+        <source>Groups</source>
+        <translation>Groupes</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/GroupOverlapDialog.cpp" line="46"/>
+        <source>These pieces are kept whole, so they are superimposed in the original PDF. Say for each group whether they should stay that way.</source>
+        <translation>Ces pièces sont gardées entières : elles sont donc superposées dans le PDF d&apos;origine. Dites, pour chaque groupe, si elles doivent le rester.</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/GroupOverlapDialog.cpp" line="59"/>
+        <source>Pieces %1 make up group %2. These pieces are superimposed in the original PDF. Do you want them to stay superimposed?</source>
+        <translation>Les pièces %1 forment le groupe %2. Ces pièces sont superposées dans le PDF d&apos;origine. Voulez-vous qu&apos;elles le restent ?</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/GroupOverlapDialog.cpp" line="66"/>
+        <source>Yes</source>
+        <translation>Oui</translation>
+    </message>
+    <message>
+        <location filename="../../src/ui/GroupOverlapDialog.cpp" line="67"/>
+        <source>No</source>
+        <translation>Non</translation>
+    </message>
+</context>
+<context>
     <name>ImportOverlay</name>
     <message>
         <location filename="../../src/app/importoverlay.cpp" line="135"/>
@@ -1286,54 +1314,51 @@
         <translation>%1 min %2</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="231"/>
-        <location filename="../../src/core/layerreducer.cpp" line="315"/>
+        <location filename="../../src/core/layerreducer.cpp" line="410"/>
+        <location filename="../../src/core/layerreducer.cpp" line="516"/>
         <source>The PDF cannot be opened.</source>
         <translation>Le PDF ne peut pas être ouvert.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="300"/>
+        <location filename="../../src/core/layerreducer.cpp" line="501"/>
         <source>This PDF carries no layer.</source>
         <translation>Ce PDF ne porte aucun calque.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="327"/>
+        <location filename="../../src/core/layerreducer.cpp" line="528"/>
+        <location filename="../../src/core/layerreducer.cpp" line="553"/>
         <source>This PDF has no readable cross-reference table.</source>
         <translation>Ce PDF n&apos;a pas de table de références croisées lisible.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="345"/>
-        <source>This PDF has no readable page.</source>
-        <translation>Ce PDF n&apos;a aucune page lisible.</translation>
-    </message>
-    <message>
-        <location filename="../../src/core/layerreducer.cpp" line="356"/>
-        <source>This page carries no drawing stream.</source>
-        <translation>Cette page ne porte aucun flux de dessin.</translation>
-    </message>
-    <message>
-        <location filename="../../src/core/layerreducer.cpp" line="369"/>
-        <location filename="../../src/core/layerreducer.cpp" line="397"/>
+        <location filename="../../src/core/layerreducer.cpp" line="647"/>
+        <location filename="../../src/core/layerreducer.cpp" line="675"/>
         <source>This PDF is not in a shape Rabnest can reduce.</source>
         <translation>Ce PDF n&apos;est pas dans une forme que Rabnest sait réduire.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="387"/>
+        <location filename="../../src/core/layerreducer.cpp" line="665"/>
         <source>The stream of this page could not be read.</source>
         <translation>Le flux de cette page n&apos;a pas pu être lu.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="441"/>
+        <location filename="../../src/core/layerreducer.cpp" line="734"/>
         <source>There is no layer to remove.</source>
         <translation>Il n&apos;y a aucun calque à retirer.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="451"/>
+        <location filename="../../src/core/layerreducer.cpp" line="720"/>
         <source>The reduced stream could not be written.</source>
         <translation>Le flux réduit n&apos;a pas pu être écrit.</translation>
     </message>
     <message>
-        <location filename="../../src/core/layerreducer.cpp" line="533"/>
+        <location filename="../../src/core/layerreducer.cpp" line="785"/>
+        <location filename="../../src/core/layerreducer.cpp" line="807"/>
+        <source>This PDF does not say which layers it holds.</source>
+        <translation>Ce PDF ne dit pas quels calques il porte.</translation>
+    </message>
+    <message>
+        <location filename="../../src/core/layerreducer.cpp" line="917"/>
         <source>Cannot write %1.</source>
         <translation>Impossible d&apos;écrire %1.</translation>
     </message>
@@ -1424,8 +1449,8 @@
         <location filename="../../src/app/rabnestwindow.cpp" line="651"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="665"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="685"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1053"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1085"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1074"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1106"/>
         <source>Print</source>
         <translation>Imprimer</translation>
     </message>
@@ -1493,9 +1518,9 @@
         <location filename="../../src/app/rabnestwindow.cpp" line="781"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="801"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="805"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1259"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1276"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="1280"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1297"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1301"/>
         <source>Export</source>
         <translation>Exporter</translation>
     </message>
@@ -1509,7 +1534,7 @@
     <message>
         <location filename="../../src/app/rabnestwindow.cpp" line="752"/>
         <location filename="../../src/app/rabnestwindow.cpp" line="805"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1280"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1301"/>
         <source>File written:
 %1</source>
         <translation>Fichier écrit :
@@ -1526,13 +1551,13 @@
         <translation>Projection, une page à l&apos;échelle 1</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="904"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="910"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="909"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="915"/>
         <source>Back to home</source>
         <translation>Retour à l&apos;accueil</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="905"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="910"/>
         <source>Every output of &quot;%1&quot; will be lost.
 
 Make sure you have exported or printed everything you need.</source>
@@ -1541,38 +1566,38 @@ Make sure you have exported or printed everything you need.</source>
 Assurez-vous d&apos;avoir exporté ou imprimé tout ce dont vous avez besoin.</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1053"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1074"/>
         <source>Laying the print out…</source>
         <translation>Pose de l&apos;impression…</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1124"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1145"/>
         <source>%1 - %2</source>
         <translation>%1 - %2</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1170"/>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1200"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1191"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1221"/>
         <source>Projector</source>
         <translation>Projecteur</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1170"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1191"/>
         <source>Looking for the smallest page…</source>
         <translation>Recherche de la page la plus petite…</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1214"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1235"/>
         <source>All sizes</source>
         <translation>Toutes les tailles</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1245"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1266"/>
         <source>Export the projection as PDF</source>
         <translation>Exporter la projection en PDF</translation>
     </message>
     <message>
-        <location filename="../../src/app/rabnestwindow.cpp" line="1260"/>
+        <location filename="../../src/app/rabnestwindow.cpp" line="1281"/>
         <source>The PDF this projection was laid from can no longer be read:
 %1
 
