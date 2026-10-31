@@ -186,6 +186,8 @@ jobs:
           for lib in libgmp.so.10 libgpg-error.so.0 libcom_err.so.2; do
             cp -L /usr/lib/x86_64-linux-gnu/${lib}* AppDir/usr/lib/ 2>/dev/null || true
           done
+          # appimagetool veut l'icône à la racine de l'AppDir, nommée comme Icon= du .desktop
+          cp -f rabnest.png AppDir/rabnest.png
           ARCH=x86_64 ./appimagetool AppDir "Rabnest.AppImage"
 
       - uses: actions/upload-artifact@v4
