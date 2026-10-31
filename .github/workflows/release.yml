@@ -175,13 +175,18 @@ jobs:
           rsvg-convert -w 512 -h 512 share/icons/app/rabnest.svg -o rabnest.png
           curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
-          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt appimagetool
           export APPIMAGE_EXTRACT_AND_RUN=1
           export PATH="$PWD:$PATH"
           ./linuxdeploy --appdir AppDir -e AppDir/usr/bin/Rabnest \
-            -d share/rabnest.desktop -i rabnest.png --plugin qt --output appimage
-          VERSION="${GITHUB_REF_NAME#v}"
-          mv Rabnest*.AppImage "Rabnest.AppImage"
+            -d share/rabnest.desktop -i rabnest.png --plugin qt --output appdir
+          # libgnutls est embarqué mais pas ses propres dépendances : sans elles
+          # l'AppImage ne démarre pas sur une distribution minimale.
+          for lib in libgmp.so.10 libgpg-error.so.0 libcom_err.so.2; do
+            cp -L /usr/lib/x86_64-linux-gnu/${lib}* AppDir/usr/lib/ 2>/dev/null || true
+          done
+          ARCH=x86_64 ./appimagetool AppDir "Rabnest.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:
