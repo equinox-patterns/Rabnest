@@ -175,6 +175,18 @@ if(UNIX AND NOT APPLE)
             DESTINATION share/icons/hicolor/${icon_size}x${icon_size}/apps)
     endforeach()
     install(FILES share/icons/app/rabnest.svg DESTINATION share/icons/hicolor/scalable/apps)
+
+    # Les textes de licence en vrais fichiers, comme dans le paquet macOS : le .qrc les rend
+    # lisibles dans l'application, ces fichiers les rendent lisibles sans l'ouvrir.
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/NOTICE"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/AUTHORS.txt"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+        DESTINATION "share/doc/rabnest"
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/"
+        DESTINATION "share/doc/rabnest/licenses"
+        FILES_MATCHING PATTERN "*.txt"
+    )
 endif()
 
 
