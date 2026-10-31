@@ -92,7 +92,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item build\Release\Rabnest.exe dist\
+          Copy-Item build\Release\*.dll dist\
+          Copy-Item NOTICE, AUTHORS.txt, LICENSE dist\
+          New-Item -ItemType Directory -Force dist\licenses | Out-Null
+          Copy-Item share\licenses\*.txt dist\licenses\
           windeployqt --release --no-translations --compiler-runtime dist\Rabnest.exe
+          # windeployqt ne trouve pas le CRT hors invite de commandes VS (VCINSTALLDIR vide),
+          # il saute --compiler-runtime sans rien dire. On copie le redistribuable à la main.
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $redist = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1
+          $crt = Get-ChildItem (Join-Path $redist.FullName "x64") -Directory |
+            Where-Object Name -Like "Microsoft.VC*.CRT" | Select-Object -First 1
+          Copy-Item (Join-Path $crt.FullName "*.dll") dist\
+          if (-not (Test-Path dist\vcruntime140.dll)) { throw "CRT MSVC absent de dist" }
           choco install nsis -y --no-progress
           $version = "$env:GITHUB_REF_NAME" -replace '^v',''
           & "C:\Program Files (x86)\NSIS\makensis.exe" "-DVERSION=$version" "-DDIST=$PWD\dist" "-DOUTDIR=$PWD" packaging\windows\installer.nsi
