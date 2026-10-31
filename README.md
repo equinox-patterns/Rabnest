@@ -6,6 +6,8 @@ It is a standalone application: it does not draw or edit patterns, it nests the
 ones it is given. The nesting itself is done by Trame, its engine, written by the
 same author and published under the same licence.
 
+Source code: https://github.com/equinox-patterns/Rabnest
+
 ## License
 
 Rabnest is free software: you can redistribute it and/or modify it under the
