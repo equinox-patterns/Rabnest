@@ -86,8 +86,8 @@ jobs:
           Copy-Item build\Release\Rabnest.exe dist\
           windeployqt --release --no-translations dist\Rabnest.exe
           choco install nsis -y --no-progress
-          $version = $env:GITHUB_REF_NAME -replace '^v',''
-          & "C:\Program Files (x86)\NSIS\makensis.exe" -DVERSION=$version -DDIST="$PWD\dist" -DOUTDIR="$PWD" packaging\windows\installer.nsi
+          $version = "$env:GITHUB_REF_NAME" -replace '^v',''
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "-DVERSION=$version" "-DDIST=$PWD\dist" "-DOUTDIR=$PWD" packaging\windows\installer.nsi
 
       - uses: actions/upload-artifact@v4
         with:
