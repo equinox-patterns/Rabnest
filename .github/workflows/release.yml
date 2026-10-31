@@ -4,9 +4,16 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Plateforme à construire'
+        type: choice
+        default: all
+        options: [all, macos, windows, linux]
 
 jobs:
   macos:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos'
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +58,7 @@ jobs:
           path: '*.dmg'
 
   windows:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +103,7 @@ jobs:
           path: '*.exe'
 
   linux:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
