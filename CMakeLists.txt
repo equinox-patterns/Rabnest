@@ -140,6 +140,10 @@ set_target_properties(Rabnest PROPERTIES
     # déclare aucune est réputé ne parler que l'anglais, et `QLocale::system()` répond `en_US` quoi
     # que dise le système. Le plist porte donc les dix-sept codes de RABNEST_LOCALES.
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in"
+    # Le bundle installé cherche ses frameworks à côté de lui. Posé ici pour que `cmake --install`
+    # l'écrive avant macdeployqt : sans rpath, macdeployqt copie les frameworks mais laisse le
+    # binaire incapable de les trouver.
+    INSTALL_RPATH "@executable_path/../Frameworks"
 )
 
 # src/ local : NestingDialog.cpp fait #include "ui/NestingDialog.h"
@@ -206,6 +210,49 @@ if(APPLE)
             "$<TARGET_BUNDLE_DIR:Rabnest>/Contents/Resources/licenses"
         COMMENT "Textes de licence dans le paquet"
         VERBATIM)
+
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    # Le bundle distribuable.
+    #
+    # Le paquet de l'arbre de construction ne contient QUE l'exécutable : il se lance sur cette
+    # machine parce que Qt est dans ~/Qt, et sur aucune autre. `cmake --install` copie le bundle,
+    # puis `qt_generate_deploy_app_script` fait passer macdeployqt : les frameworks Qt entrent
+    # dans Contents/Frameworks et les rpaths sont réécrits vers @executable_path/../Frameworks.
+    # C'est ce bundle-là que deploy.sh synchronise, pas celui de build/.
+    # ══════════════════════════════════════════════════════════════════════════════════════════
+    install(TARGETS Rabnest BUNDLE DESTINATION .)
+
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/share/icons/app/rabnest.icns"
+        DESTINATION "Rabnest.app/Contents/Resources"
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/share/licenses/"
+        DESTINATION "Rabnest.app/Contents/Resources/licenses"
+        FILES_MATCHING PATTERN "*.txt"
+    )
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/NOTICE"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/AUTHORS.txt"
+        DESTINATION "Rabnest.app/Contents/Resources"
+    )
+
+    # macdeployqt, appelé directement. Le script engendré par qt_generate_deploy_app_script ne
+    # passe pas -libpath, et sur ce bundle il échoue à résoudre @rpath/QtCore : il copie les
+    # frameworks mais laisse le binaire sans rpath. Avec le préfixe Qt, il réécrit le rpath en
+    # @executable_path/../Frameworks et le paquet devient autonome.
+    get_target_property(_rabnest_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_rabnest_qt_bin "${_rabnest_qmake}" DIRECTORY)
+    get_filename_component(_rabnest_qt_lib "${_rabnest_qt_bin}/../lib" ABSOLUTE)
+
+    install(CODE "
+        execute_process(
+            COMMAND \"${_rabnest_qt_bin}/macdeployqt\" \"\${CMAKE_INSTALL_PREFIX}/Rabnest.app\"
+                    \"-libpath=${_rabnest_qt_lib}\" -always-overwrite
+            RESULT_VARIABLE _rabnest_deploy_rc
+            OUTPUT_VARIABLE _rabnest_deploy_out
+            ERROR_VARIABLE _rabnest_deploy_out)
+        if(NOT _rabnest_deploy_rc EQUAL 0)
+            message(FATAL_ERROR \"macdeployqt a échoué : \${_rabnest_deploy_out}\")
+        endif()
+    ")
 endif()
 
 target_link_libraries(Rabnest PRIVATE
