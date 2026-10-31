@@ -38,7 +38,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QVBoxLayout;
-struct ImportedDocument;
+class ImportedDocument;
 
 /// A PDF from another application: there are no pieces to choose and nothing to re-nest.
 ///

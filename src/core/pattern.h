@@ -36,7 +36,7 @@
 #include <QStringList>
 #include <QVector>
 
-struct ImportedDocument;
+class ImportedDocument;
 
 /// The drawing of one piece's own children — its cartouche, its annotations, the grain line and the
 /// fold mark as they were DRAWN and not as a pair of points.

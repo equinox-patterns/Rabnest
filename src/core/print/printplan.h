@@ -44,7 +44,7 @@
 
 #include <vector>
 
-struct ImportedDocument;
+class ImportedDocument;
 
 /// One piece as the print run draws it — its own form, at its own size.
 ///
