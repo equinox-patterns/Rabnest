@@ -17,7 +17,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            label: Apple-Silicon
+          - arch: x86_64
+            label: Intel
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +60,7 @@ jobs:
           ln -s /Applications dmg/Applications
           VERSION="${GITHUB_REF_NAME#v}"
           hdiutil create -volname Rabnest -srcfolder dmg -ov -format UDZO \
-            "Rabnest-${{ matrix.arch }}.dmg"
+            "Rabnest-${{ matrix.label }}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
