@@ -180,7 +180,7 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           export PATH="$PWD:$PATH"
           ./linuxdeploy --appdir AppDir -e AppDir/usr/bin/Rabnest \
-            -d share/rabnest.desktop -i rabnest.png --plugin qt --output appdir
+            -d share/rabnest.desktop -i rabnest.png --plugin qt
           # libgnutls est embarqué mais pas ses propres dépendances : sans elles
           # l'AppImage ne démarre pas sur une distribution minimale.
           for lib in libgmp.so.10 libgpg-error.so.0 libcom_err.so.2; do
