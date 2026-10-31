@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Rabnest"));
-    QApplication::setApplicationVersion(QStringLiteral("0.3.0"));
+    QApplication::setApplicationVersion(QStringLiteral(RABNEST_VERSION));
     QApplication::setOrganizationName(QStringLiteral("Sophie Denys"));
 
     // **Before any widget exists, and after the application is named.** The name is what QSettings

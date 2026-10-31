@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(Rabnest VERSION 0.2.0 LANGUAGES CXX)
+project(Rabnest VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -128,8 +128,9 @@ add_executable(Rabnest MACOSX_BUNDLE
 set_target_properties(Rabnest PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "Rabnest"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.sophiedenys.rabnest"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.3.0"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright © 2026 Sophie Denys"
     MACOSX_BUNDLE TRUE
     # L'icône du bundle : le .icns est copié dans Contents/Resources juste après la construction,
     # et la clé du plist la nomme.
@@ -143,6 +144,10 @@ set_target_properties(Rabnest PROPERTIES
 
 # src/ local : NestingDialog.cpp fait #include "ui/NestingDialog.h"
 target_include_directories(Rabnest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# La version vient du project(), une seule fois : le bundle, le plist et
+# QCoreApplication::applicationVersion() lisent tous les trois la même valeur.
+target_compile_definitions(Rabnest PRIVATE RABNEST_VERSION="${PROJECT_VERSION}")
 
 # ── Windows ────────────────────────────────────────────────────────────────────────────────────
 # L'icône n'est pas posée à côté de l'exécutable : elle est compilée dedans par le script de
