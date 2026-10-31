@@ -64,7 +64,12 @@
         <translation>Socle graphique :</translation>
     </message>
     <message>
-        <location filename="../../src/app/aboutdialog.cpp" line="158"/>
+        <location filename="../../src/app/aboutdialog.cpp" line="160"/>
+        <source>Source code:</source>
+        <translation>Code source :</translation>
+    </message>
+    <message>
+        <location filename="../../src/app/aboutdialog.cpp" line="163"/>
         <source>Technical details</source>
         <translation>Détails techniques</translation>
     </message>

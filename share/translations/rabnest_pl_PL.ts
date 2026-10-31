@@ -64,7 +64,12 @@
         <translation>Framework:</translation>
     </message>
     <message>
-        <location filename="../../src/app/aboutdialog.cpp" line="158"/>
+        <location filename="../../src/app/aboutdialog.cpp" line="160"/>
+        <source>Source code:</source>
+        <translation>Kod źródłowy:</translation>
+    </message>
+    <message>
+        <location filename="../../src/app/aboutdialog.cpp" line="163"/>
         <source>Technical details</source>
         <translation>Szczegóły techniczne</translation>
     </message>

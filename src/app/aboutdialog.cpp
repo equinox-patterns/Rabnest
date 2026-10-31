@@ -154,9 +154,14 @@ void AboutDialog::Fill()
             .arg(tr("Icons:"), tr("Typeface:"), tr("Nesting:"), tr("Compression:"), tr("Framework:"),
                  QString::fromLatin1(QT_VERSION_STR));
 
+    const QString source =
+        QStringLiteral("<p><b>%1</b> <a href=\"https://github.com/equinox-patterns/Rabnest\">"
+                       "https://github.com/equinox-patterns/Rabnest</a></p>")
+            .arg(tr("Source code:"));
+
     const QString details = QStringLiteral("<h3>%1</h3>%2")
                                 .arg(tr("Technical details"), Block(TechnicalText()));
 
-    m_body->setHtml(components + details);
+    m_body->setHtml(components + source + details);
     m_body->verticalScrollBar()->setValue(0);
 }

@@ -64,7 +64,12 @@
         <translation>框架：</translation>
     </message>
     <message>
-        <location filename="../../src/app/aboutdialog.cpp" line="158"/>
+        <location filename="../../src/app/aboutdialog.cpp" line="160"/>
+        <source>Source code:</source>
+        <translation>源代码：</translation>
+    </message>
+    <message>
+        <location filename="../../src/app/aboutdialog.cpp" line="163"/>
         <source>Technical details</source>
         <translation>技术信息</translation>
     </message>
