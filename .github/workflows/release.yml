@@ -93,3 +93,51 @@ jobs:
         with:
           name: windows-x64
           path: '*.exe'
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Qt 6.11.1
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          arch: linux_gcc_64
+          cache: true
+
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev librsvg2-bin
+
+      - name: Trame
+        run: git clone --depth 1 --branch v0.1.0 https://github.com/equinox-patterns/Trame.git ../Trame
+
+      - name: Configurer
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compiler
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: AppImage
+        run: |
+          mkdir -p AppDir
+          DESTDIR="$PWD/AppDir" cmake --install build --prefix /usr
+          rsvg-convert -w 512 -h 512 share/icons/app/rabnest.svg -o rabnest.png
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export PATH="$PWD:$PATH"
+          ./linuxdeploy --appdir AppDir -e AppDir/usr/bin/Rabnest \
+            -d share/rabnest.desktop -i rabnest.png --plugin qt --output appimage
+          VERSION="${GITHUB_REF_NAME#v}"
+          mv Rabnest*.AppImage "Rabnest-${VERSION}-linux-x86_64.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: '*.AppImage'
