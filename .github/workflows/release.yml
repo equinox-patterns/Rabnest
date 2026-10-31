@@ -42,6 +42,12 @@ jobs:
       - name: Compiler
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
 
+      - name: Traductions Qt dans le catalogue
+        run: |
+          "$QT_ROOT_DIR/bin/lconvert" -i build/rabnest_fr_FR.qm -o /tmp/rabnest_fr.ts
+          grep -q "<source>&amp;Cancel</source>" /tmp/rabnest_fr.ts \
+            || { echo "Traductions Qt absentes : les dialogues natifs resteraient en anglais"; exit 1; }
+
       - name: Empaqueter
         run: |
           cmake --install build --prefix stage
@@ -65,7 +71,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Qt 6.11.1
+      - name: Qt 6.10.3
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.10.3'
@@ -86,6 +92,14 @@ jobs:
 
       - name: Compiler
         run: cmake --build build --config Release --parallel
+
+      - name: Traductions Qt dans le catalogue
+        shell: pwsh
+        run: |
+          & "$env:QT_ROOT_DIR\bin\lconvert.exe" -i build\rabnest_fr_FR.qm -o check_fr.ts
+          if (-not (Select-String -Path check_fr.ts -Pattern "<source>&amp;Cancel</source>" -Quiet)) {
+            throw "Traductions Qt absentes : les dialogues natifs resteraient en anglais"
+          }
 
       - name: Empaqueter
         shell: pwsh
@@ -143,6 +157,12 @@ jobs:
 
       - name: Compiler
         run: cmake --build build --parallel "$(nproc)"
+
+      - name: Traductions Qt dans le catalogue
+        run: |
+          "$QT_ROOT_DIR/bin/lconvert" -i build/rabnest_fr_FR.qm -o /tmp/rabnest_fr.ts
+          grep -q "<source>&amp;Cancel</source>" /tmp/rabnest_fr.ts \
+            || { echo "Traductions Qt absentes : les dialogues natifs resteraient en anglais"; exit 1; }
 
       - name: AppImage
         run: |
