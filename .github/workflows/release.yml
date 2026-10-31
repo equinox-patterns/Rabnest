@@ -101,11 +101,10 @@ jobs:
           # il saute --compiler-runtime sans rien dire. On copie le redistribuable à la main.
           $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -property installationPath
-          $redist = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory |
-            Sort-Object Name -Descending | Select-Object -First 1
-          $crt = Get-ChildItem (Join-Path $redist.FullName "x64") -Directory |
-            Where-Object Name -Like "Microsoft.VC*.CRT" | Select-Object -First 1
-          Copy-Item (Join-Path $crt.FullName "*.dll") dist\
+          $crtDll = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Recurse -Filter vcruntime140.dll |
+            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if (-not $crtDll) { throw "CRT x64 introuvable dans le redistribuable Visual Studio" }
+          Copy-Item (Join-Path $crtDll.Directory.FullName "*.dll") dist\
           if (-not (Test-Path dist\vcruntime140.dll)) { throw "CRT MSVC absent de dist" }
           choco install nsis -y --no-progress
           $version = "$env:GITHUB_REF_NAME" -replace '^v',''
