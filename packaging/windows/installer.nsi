@@ -12,7 +12,7 @@ Unicode true
 !endif
 
 Name "Rabnest"
-OutFile "${OUTDIR}\Rabnest-${VERSION}-windows-x64.exe"
+OutFile "${OUTDIR}\Rabnest.exe"
 InstallDir "$LOCALAPPDATA\Programs\Rabnest"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
