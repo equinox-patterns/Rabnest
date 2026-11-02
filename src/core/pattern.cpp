@@ -1505,8 +1505,17 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // re-forming it — and only a cutting plan asks the cloth, which is the one thing that
             // can make a whole piece go on folded fabric. A piece with no fold has one form only,
             // and `alternative` is then empty.
+            // ⚠️ **Sur tissu plié, le payload a DÉJÀ choisi la forme.** Son `stored` est celle qui
+            // va sur le pli : la moitié quand la pièce est coupée au pli, la pièce ENTIÈRE quand
+            // elle est montrée dépliée. C'est ce que `SetShowFullPiece` écrit à l'export
+            // (`oexportgeometry.cpp` : `laidFolded` → `stored="folded"`, `flatBand` →
+            // `stored="unfolded"`). Le code posait `alternative` dans le second cas, donc la MOITIÉ
+            // — une pièce dépliée redevenait pliée dès qu'on pliait le tissu.
+            //
+            // Sur tissu à plat, la pièce n'a pas de pli à compléter : c'est la forme ENTIÈRE qu'on
+            // pose, stockée ou non.
             const bool storedIsTheOneLaid = cloth == Cloth::AsDrawn || !onFold
-                                            || (cloth == Cloth::Folded) == storedFolded;
+                                            || cloth == Cloth::Folded || !storedFolded;
             QVector<QPointF> contour = Outline(storedIsTheOneLaid ? stored : alternative);
 
             if (contour.size() < 3)
@@ -1841,6 +1850,12 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
             // payload writes one record per piece per size — the drawing shows that piece once —
             // and « cut 4 » is a figure the cartouche carries, not a request to print it four
             // times. Only a cutting plan expands it, because only a plan produces pieces to cut.
+            // ⚠️ **Une pièce montrée DÉPLIÉE est coupée ENTIÈRE, sur une seule épaisseur.** C'est la
+            // règle de Sophie : « si la pièce est dépliée dans le PDF, elle doit le rester dans le
+            // plan de coupe, même en tissu plié ». Son drapeau se lit ici, une fois, et tout le plan
+            // en dépend : filtre de côté, ancre, jumelle, quantité.
+            pose.flatBand = cloth == Cloth::Folded && onFold && !storedFolded;
+
             int quantity = cloth == Cloth::AsDrawn ? 1 : cut;
             if (cloth == Cloth::Folded && !onFold)
             {
@@ -1866,7 +1881,9 @@ auto Pattern::Load(const ImportedDocument &document, const QStringList &sizeIds,
                 // drawn for one edge of the fold. The mirror opens the other: one of the two is
                 // laid, the other exists so that either edge can receive it. Both are emitted here
                 // and the plan keeps the one whose edge matches the fold it is given.
-                if (cloth == Cloth::Folded && onFold)
+                // ⚠️ Pas de jumelle pour une pièce de bande plate : elle n'est pas posée contre
+                // un bord du tissu, donc il n'y a pas d'autre bord à ouvrir pour elle.
+                if (cloth == Cloth::Folded && onFold && !one.flatBand)
                 {
                     const double axisX = CentreX(one.outline);
 

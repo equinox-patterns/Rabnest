@@ -86,6 +86,19 @@ struct CutPiece
     QPointF foldA;
     QPointF foldB;
 
+    /// La pièce va dans la bande PLATE : coupée entière, sur une seule épaisseur.
+    ///
+    /// ⚠️ **Ce n'est pas « pas au pli » : c'est « au pli, mais montrée dépliée ».** Elle garde sa
+    /// ligne de pli — elle la porte au milieu d'elle, et son cartouche dit « on fold » — et c'est
+    /// précisément pour ça qu'elle ne peut pas être coupée pliée : sa moitié serait complétée par le
+    /// pli, donc elle serait coupée deux fois. Le payload le dit (`stored="unfolded"`) et la règle
+    /// de Sophie est que ce qui est déplié dans le PDF le reste dans le plan de coupe, même en tissu
+    /// plié.
+    ///
+    /// Conséquence : ni filtre de côté (`Suits`), ni ancre au pli, ni jumelle miroir, ni quantité
+    /// divisée par deux.
+    bool flatBand = false;
+
     /// The footprint this pose belongs to, as the payload names it — `g<groupId>` for a member of a
     /// group, the piece's own name otherwise.
     ///

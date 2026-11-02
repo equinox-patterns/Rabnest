@@ -472,7 +472,12 @@ void RabnestWindow::PrintCutPlan(int index)
         m_workspace->Show(plan);
     }
 
-    const QSizeF planPx(plan.binWidthPx, plan.usedHeightPx);
+    // ⚠️ **La feuille doit contenir ce qui est DESSINÉ** — cadres, titres et flèches compris —, pas le
+    // seul tissu : le papier couperait les titres que l'écran montre.
+    const QRectF shownRect = m_workspace->PlanRect();
+    const QRectF drawnRect =
+        shownRect.isNull() ? QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx) : shownRect;
+    const QSizeF planPx = drawnRect.size();
 
     PrintPlanDialog choice(this);
     if (choice.exec() != QDialog::Accepted)
@@ -539,7 +544,7 @@ void RabnestWindow::PrintCutPlan(int index)
     // a floor written in device pixels would print a line a quarter of that, and a plan drawn in
     // grey.
     const double floorPx = 0.1 * devicePerMm / sheet.scale;
-    m_workspace->RenderPlan(&painter, QRectF(QPointF(0.0, 0.0), planPx), sheet.planRect, floorPx);
+    m_workspace->RenderPlan(&painter, drawnRect, sheet.planRect, floorPx);
 
     // ── La ligne sous le plan ────────────────────────────────────────────────────────────────────
     //
@@ -720,9 +725,13 @@ void RabnestWindow::ExportOutputToImage(int index)
     // output in front of her, which is where she expects to be after pressing its icon.
     m_workspace->Show(plan);
 
-    // The plan's own rectangle, never the scene's: the margin around the drawing belongs to the view.
-    const PlanImage::Plan image =
-        PlanImage::Of(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx));
+    // ⚠️ **Ce qui est rendu, c'est ce qui est DESSINÉ** — cadres, titres et flèches compris. Rendre le
+    // seul rectangle du tissu les coupait en haut et en bas : le fichier ne contenait pas ce que
+    // l'écran montrait. La marge de VUE, elle, ne rentre toujours pas : elle n'existe que dans la
+    // fenêtre. Le métrage reste celui du tissu — deux choses différentes.
+    const QRectF shownRect = m_workspace->PlanRect();
+    const PlanImage::Plan image = PlanImage::Of(
+        shownRect.isNull() ? QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx) : shownRect);
 
     ExportImageDialog dialog(image, RunsDock::Name(plan), m_exportDirectory, this);
     if (dialog.exec() != QDialog::Accepted)

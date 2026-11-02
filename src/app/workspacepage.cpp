@@ -35,6 +35,7 @@
 #include <QCoreApplication>
 #include <QGraphicsItemGroup>
 #include <QGraphicsPathItem>
+#include <QGraphicsSimpleTextItem>
 #include <QGraphicsRectItem>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -370,6 +371,12 @@ void WorkspacePage::Show(const CutPlan &plan, const CutPlan *lining)
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+auto WorkspacePage::PlanRect() const -> QRectF
+{
+    return m_planRect;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void WorkspacePage::Clear()
 {
     m_scene->clear();
@@ -539,6 +546,7 @@ void WorkspacePage::Draw(const CutPlan &plan, const CutPlan *lining)
         bounds = bounds.united(DrawCloth(*lining, seat));
     }
 
+    m_planRect = bounds;
     m_scene->setSceneRect(bounds.adjusted(-20.0, -20.0, 20.0, 20.0));
     m_zoomed = false; // a plan put on screen is looked at WHOLE
     FitToScene();
@@ -561,6 +569,59 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
 
     // The cloth: what the pieces were laid into, at the width she paid for and the length the plan
     // actually needs.
+    // ── Les BANDES, et un canvas par bande ────────────────────────────────────────────────────────
+    //
+    // ⚠️ **Une bande = un canvas.** La longueur du plan est la SOMME des hauteurs de bandes ; un
+    // trait unique autour du tout le dirait mal, et deux bandes collées se liraient comme une seule.
+    // On les écarte donc — et **leurs pièces suivent**, sinon une pièce sort de son cadre.
+    //
+    // ⚠️ **Le vide et les titres sont HORS du tissu** : ils ne coûtent ni hauteur, ni métrage, ni
+    // rien dans un fichier de coupe. Ce qui les fait exister dans l'image, c'est le rectangle que
+    // cette fonction RETOURNE : c'est l'étendue réellement dessinée, et l'export comme l'impression
+    // la prennent désormais pour source.
+    //
+    // Les zones arrivent dans l'ordre du plan — gauche, droite (même haut), colonne dessous — donc
+    // les bandes se forment dans l'ordre de la hauteur, sans tri.
+    struct Band
+    {
+        QRectF rect;
+        QVector<int> zones;
+    };
+    QVector<Band> bands;
+    QVector<int> bandOfZone(plan.zones.size(), 0);
+    for (int zone = 0; zone < plan.zones.size(); ++zone)
+    {
+        const FoldZone &foldZone = plan.zones.at(zone);
+        bool merged = false;
+        for (int band = 0; band < bands.size() && !merged; ++band)
+        {
+            if (qAbs(bands.at(band).rect.top() - foldZone.rect.top()) < 0.5)
+            {
+                bands[band].rect = bands.at(band).rect.united(foldZone.rect);
+                bands[band].zones.append(zone);
+                bandOfZone[zone] = band;
+                merged = true;
+            }
+        }
+        if (!merged)
+        {
+            bandOfZone[zone] = bands.size();
+            bands.append(Band{foldZone.rect, QVector<int>{zone}});
+        }
+    }
+
+    // Le titre se dimensionne sur le plan, et le vide sur le titre : il doit tenir dehors, au-dessus
+    // du cadre. Proportionné à la largeur du canvas, il grossit avec le plan — en points il faisait
+    // trois pixels sur un dessin de deux mètres.
+    double widestBand = 0.0;
+    for (const Band &band : bands)
+    {
+        widestBand = std::max(widestBand, band.rect.width());
+    }
+    const int labelPx = bands.isEmpty() ? 0 : qMax(12, qRound(widestBand * 0.025));
+    const double bandGapPx = labelPx * 1.9;
+    const auto bandShift = [bandGapPx](int band) { return band * bandGapPx; };
+
     QPen border(QColor(0xD6, 0xD6, 0xD6));
     border.setCosmetic(true);
     // ⚠️ **Le fond est le TISSU, et il est coloré — d'un bout à l'autre.** Il était blanc avec des
@@ -568,10 +629,29 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
     // découpent en clair sur du clair. Le tissu prend donc la couleur, et les pièces ne sont plus
     // remplies du tout : ce qu'on voit d'une pièce, c'est son trait.
     const QBrush clothBrush(QColor(0xF7, 0xF5, 0xF2));
-    auto *cloth = new QGraphicsRectItem(QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx));
-    cloth->setPen(border);
-    cloth->setBrush(clothBrush);
-    group->addToGroup(cloth);
+
+    QRectF drawn;   // l'étendue dessinée, dans le repère du plan — le siège s'ajoute au retour
+    if (bands.isEmpty())
+    {
+        const QRectF clothRect(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx);
+        auto *cloth = new QGraphicsRectItem(clothRect);
+        cloth->setPen(border);
+        cloth->setBrush(clothBrush);
+        group->addToGroup(cloth);
+        drawn = clothRect;
+    }
+    else
+    {
+        for (int band = 0; band < bands.size(); ++band)
+        {
+            const QRectF clothRect = bands.at(band).rect.translated(0.0, bandShift(band));
+            auto *cloth = new QGraphicsRectItem(clothRect);
+            cloth->setPen(border);
+            cloth->setBrush(clothBrush);
+            group->addToGroup(cloth);
+            drawn = drawn.isNull() ? clothRect : drawn.united(clothRect);
+        }
+    }
 
     // ── Le pli ──────────────────────────────────────────────────────────────────────────────────
     //
@@ -583,17 +663,120 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
     // 56 px is a centimetre and a half of real fabric — about ten screen pixels when the plan is
     // fitted to the window, and two and a half millimetres once it is shrunk onto a sheet.
     const QPen foldZonePen(QColor(0, 0, 0, 128));
-    for (const FoldZone &zone : plan.zones)
+    for (int zone = 0; zone < plan.zones.size(); ++zone)
     {
-        QPainterPath outline;
-        outline.addRect(zone.rect);
-        group->addToGroup(new FoldGuideItem(outline, foldZonePen, {56.0, 32.0}));
+        const FoldZone &foldZone = plan.zones.at(zone);
+        const QRectF rect = foldZone.rect.translated(0.0, bandShift(bandOfZone.value(zone)));
 
-        const double x = zone.foldOnTheLeft ? zone.rect.left() : zone.rect.right();
+        // Le contour pointillé d'une zone ne se dessine qu'à partir de deux : une bande d'une seule
+        // zone EST le canvas, son cadre le dit déjà.
+        if (bands.size() > 0 && bands.at(bandOfZone.value(zone)).zones.size() > 1)
+        {
+            QPainterPath outline;
+            outline.addRect(rect);
+            group->addToGroup(new FoldGuideItem(outline, foldZonePen, {56.0, 32.0}));
+        }
+
+        const double x = foldZone.foldOnTheLeft ? rect.left() : rect.right();
         QPainterPath axis;
-        axis.moveTo(x, zone.rect.top());
-        axis.lineTo(x, zone.rect.bottom());
+        axis.moveTo(x, rect.top());
+        axis.lineTo(x, rect.bottom());
         group->addToGroup(new FoldGuideItem(axis, foldZonePen, {32.0, 16.0, 2.0, 16.0}));
+    }
+
+    // ── Le titre et la flèche de pli, PAR SECTION ────────────────────────────────────────────────
+    //
+    // ⚠️ **Une bande à deux plis a DEUX titres.** Un seul titre pour les deux est mensonger : sur une
+    // laize de 140, L/R annoncerait « 70 × … » alors que chaque moitié fait 35 — la largeur affichée
+    // ne correspondrait à aucune section. Chaque section dit SA largeur et SA longueur, et chacune se
+    // pose au-dessus de sa moitié : le pli à gauche cale à gauche, le pli à droite cale à droite.
+    //
+    // ⚠️ **La flèche dit le repli** : un U couché, son cul sur le bord du pli, deux traits parallèles
+    // qui s'en écartent, et UNE seule pointe au bout du trait du haut, tournée vers l'intérieur — le
+    // tissu part, se replie au pli, et revient. Deux pointes liraient « ça va des deux côtés », ce
+    // qui n'est pas ce qu'on dessine en couture.
+    if (!bands.isEmpty())
+    {
+        QFont labelFont;
+        labelFont.setPixelSize(labelPx);
+
+        for (int zone = 0; zone < plan.zones.size(); ++zone)
+        {
+            const FoldZone &foldZone = plan.zones.at(zone);
+            const QRectF section =
+                foldZone.rect.translated(0.0, bandShift(bandOfZone.value(zone)));
+
+            const double textTop = section.top() - labelPx * 1.15;
+            const double arrowWidth = labelPx * 3.0;   // la largeur se voit : c'est le sens
+            const double arrowHeight = labelPx * 0.9;
+            const double gap = labelPx * 0.35;
+            const double margin = labelPx * 0.2;
+
+            auto *label = new QGraphicsSimpleTextItem(
+                QStringLiteral("%1 × %2 cm")
+                    .arg(section.width() * kCmPerPx, 0, 'f', 1)
+                    .arg(section.height() * kCmPerPx, 0, 'f', 1));
+            label->setFont(labelFont);
+            label->setBrush(Qt::black);
+            label->setZValue(100.0);
+
+            // ⚠️ **Le bloc entier est ancré CÔTÉ PLI** : pli à gauche, le U ouvre la marche et le
+            // texte le suit ; pli à droite, le texte d'abord et le U ferme la marche, cul au bord.
+            const bool foldOnLeft = foldZone.foldOnTheLeft;
+            const double textWidth = label->boundingRect().width();
+            double arrowLeft = 0.0;
+            double textLeft = 0.0;
+            if (foldOnLeft)
+            {
+                arrowLeft = section.left() + margin;
+                textLeft = arrowLeft + arrowWidth + gap;
+            }
+            else
+            {
+                arrowLeft = section.right() - margin - arrowWidth;
+                textLeft = arrowLeft - gap - textWidth;
+            }
+            label->setPos(textLeft, textTop);
+            group->addToGroup(label);
+
+            const double centreY = textTop + label->boundingRect().height() * 0.5;
+            const double upperY = centreY - arrowHeight * 0.5;
+            const double lowerY = centreY + arrowHeight * 0.5;
+            const double bendX = foldOnLeft ? arrowLeft : arrowLeft + arrowWidth;
+            const double tipX = foldOnLeft ? arrowLeft + arrowWidth : arrowLeft;
+            QPen arrowPen(Qt::black, qMax(1.0, labelPx * 0.09));
+            arrowPen.setCapStyle(Qt::FlatCap);
+
+            QPainterPath uTurn;
+            uTurn.moveTo(tipX, lowerY);
+            uTurn.lineTo(bendX, lowerY);
+            uTurn.lineTo(bendX, upperY);
+            uTurn.lineTo(tipX, upperY);
+            auto *arrow = new QGraphicsPathItem(uTurn);
+            arrow->setPen(arrowPen);
+            arrow->setBrush(Qt::NoBrush);
+            arrow->setZValue(100.0);
+            group->addToGroup(arrow);
+
+            const double direction = foldOnLeft ? 1.0 : -1.0;
+            const double headLength = labelPx * 0.55;
+            const double headHalf = labelPx * 0.32;
+            QPainterPath head;
+            head.moveTo(tipX, upperY);
+            head.lineTo(tipX - direction * headLength, upperY - headHalf);
+            head.lineTo(tipX - direction * headLength, upperY + headHalf);
+            head.closeSubpath();
+            auto *arrowHead = new QGraphicsPathItem(head);
+            arrowHead->setPen(arrowPen);
+            arrowHead->setBrush(QBrush(Qt::black));
+            arrowHead->setZValue(100.0);
+            group->addToGroup(arrowHead);
+
+            // Le titre et la flèche sont HORS du tissu : c'est ce qui fait grandir le rectangle rendu.
+            drawn = drawn.united(
+                QRectF(section.left() - labelPx, textTop, section.width() + labelPx * 2.0,
+                       labelPx * 1.6));
+        }
     }
 
     // Its WIDTH is not set here: the zoom decides it, and `RefreshLineWidth` writes it after the
@@ -633,7 +816,13 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
                 plan.footprint.polygons.at(static_cast<size_t>(index)), placement, origin));
         }
 
-        group->addToGroup(new PatternPathItem(shape, piecePen));
+        // ⚠️ **Une pièce suit SA bande.** Les canvas sont écartés (voir plus haut) ; une pièce
+        // laissée à sa place vraie sortirait du cadre qui la porte. La bande vient de la
+        // NIDIFICATION (`plan.placementBand`), jamais de la position de la pièce : une pièce taillée
+        // dans le biais a une boîte tournée qui ne dit rien de la bande où elle a été posée.
+        auto *piece = new PatternPathItem(shape, piecePen);
+        piece->setPos(0.0, bandShift(plan.placementBand.value(index, 0)));
+        group->addToGroup(piece);
 
         // ── Le décor de la pièce ────────────────────────────────────────────────────────────────
         //
@@ -676,6 +865,9 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
                 // size's layer; the payload now states a position for every size, and a position
                 // that is stated is not re-derived.
                 QTransform transform;
+                // Le même écart que la pièce, appliqué le PREMIER : il est donc le plus extérieur,
+                // c'est-à-dire le décalage de scène, exactement comme `piece->setPos`.
+                transform.translate(0.0, bandShift(plan.placementBand.value(index, 0)));
                 transform.translate(placement.x, placement.y);
                 transform.rotate(placement.rotation);
                 transform.translate(decor.box.left() - origin.x(), decor.box.top() - origin.y());
@@ -689,8 +881,13 @@ auto WorkspacePage::DrawCloth(const CutPlan &plan, const QPointF &seat) -> QRect
     group->setPos(seat);
     m_scene->addItem(group);
 
-    // The cloth in the scene's own coordinates — the seat included, since that is where it is drawn.
-    return QRectF(seat, QSizeF(plan.binWidthPx, plan.usedHeightPx));
+    // ⚠️ **Ce qui est rendu, c'est ce qui est DESSINÉ** — cadres, titres et flèches compris, et pas
+    // seulement le tissu. Le rectangle est dans le repère du plan, le siège s'ajoute ici.
+    if (drawn.isNull())
+    {
+        drawn = QRectF(0.0, 0.0, plan.binWidthPx, plan.usedHeightPx);
+    }
+    return drawn.translated(seat);
 }
 
 //---------------------------------------------------------------------------------------------------------------------

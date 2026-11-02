@@ -124,6 +124,17 @@ public:
     void RenderPlan(QPainter *painter, const QRectF &sourcePx, const QRectF &targetPx,
                     double floorPx = kLineFloorPx);
 
+    /// L'étendue RÉELLEMENT dessinée du plan, siège compris : les cadres de bandes, les titres et les
+    /// flèches de pli, qui sont posés HORS du tissu.
+    ///
+    /// ⚠️ **C'est ce rectangle que l'image et le papier prennent pour source**, jamais
+    /// `QRectF(0, 0, binWidthPx, usedHeightPx)`. Ce dernier est le TISSU : rendre le tissu seul
+    /// coupait les titres et les flèches en haut et en bas, et le fichier ne contenait pas ce que
+    /// l'écran montrait. Le métrage, lui, reste celui du tissu : deux choses différentes.
+    ///
+    /// Nul tant qu'aucun plan n'est à l'écran.
+    QRectF PlanRect() const;
+
     /// The zoom of the canvas, in steps around what is on screen.
     ///
     /// **A step, not a factor of the plan.** Zooming does not re-lay anything: it changes how the
@@ -192,6 +203,7 @@ private:
     PrintPlan m_printPlan;
     ExportTemplate m_printDecor;
     QByteArray m_coverSvg;
+    QRectF m_planRect;   ///< l'étendue dessinée du dernier plan montré — voir PlanRect()
     QRectF m_coverPaper;
     QRectF m_coverPage;
     bool m_printFramed = false;

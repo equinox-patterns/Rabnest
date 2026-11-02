@@ -139,6 +139,16 @@ struct CutPlan
 
     QVector<FoldZone> zones;
 
+    /// La BANDE de chaque placement, index-alignée avec `placements` : 0 pour les bandes du haut
+    /// (gauche et droite, qui partagent le même haut), 1 pour la colonne sous elles.
+    ///
+    /// ⚠️ **La bande d'une pièce ne se déduit PAS de sa géométrie**, et c'est le piège qu'Ostara a
+    /// payé : `Placement::y` est le point de placement, pas le haut de la pièce, et l'origine d'une
+    /// empreinte est prise AVANT rotation. Une pièce taillée dans le biais a une boîte tournée qui
+    /// n'a plus aucun rapport avec eux — elle serait classée dans la mauvaise bande et dessinée
+    /// hors de son canvas. Ici la nidification SAIT où elle a mis chaque pose : elle l'écrit.
+    QVector<int> placementBand;
+
     /// What each piece is drawn with, by name — its cartouche, its annotations, its grain line as it
     /// was drawn. Carried by the PLAN and not by each pose: ten poses of one piece share one drawing.
     QHash<QString, PieceDecor> decor;

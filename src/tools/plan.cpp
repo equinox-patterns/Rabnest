@@ -347,7 +347,10 @@ int main(int argc, char *argv[])
             for (std::size_t index = 0; index < plan.poses.size() && index < placed.size(); ++index)
             {
                 const CutPiece &pose = plan.poses.at(static_cast<int>(index));
-                if (!pose.onFold)
+                // ⚠️ **Une pièce de bande plate n'a pas à tomber sur un pli du tissu** : elle est
+                // coupée entière, sur une seule épaisseur, et sa ligne de pli est au MILIEU d'elle.
+                // La vérifier la déclarerait hors du pli alors que c'est justement ce qu'on veut.
+                if (!pose.onFold || pose.flatBand)
                 {
                     continue;
                 }
