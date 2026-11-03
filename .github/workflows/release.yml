@@ -119,11 +119,37 @@ jobs:
           # il saute --compiler-runtime sans rien dire. On copie le redistribuable à la main.
           $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -property installationPath
-          $crtDll = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Recurse -Filter vcruntime140.dll |
-            Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          # Le dossier VC\Redist\MSVC contient plusieurs générations (14.29 = VS2019,
+          # 14.30 et au-delà = VS2022) et Get-ChildItem les rend dans l'ordre
+          # alphabétique : « -First 1 » prenait donc la PLUS ANCIENNE, alors que le code
+          # est compilé avec le CRT de VS2022. Rabnest ne le manifestait pas — il
+          # n'appelle jamais Xerces — mais le défaut était le même que dans Ostara,
+          # où il tuait l'application au démarrage sur tout Windows (0xC0000005).
+          # FileVersion arrive sous la forme « 14.29.30157.0 built by: cloudtest » :
+          # seul le premier mot est convertible en [version], le reste fait échouer le
+          # tri. On isole donc le numéro avant de comparer.
+          #
+          # Le chemin est ancré sur « <version>\x64\Microsoft.VC14x.CRT\ » : à côté du
+          # CRT du bureau, le redistribuable contient aussi « onecore\x64\… » (sous-
+          # ensemble d'API OneCore) et « spectre\x64\… » (bibliothèques atténuées pour
+          # /Qspectre). Un simple « \x64\ » les attrapait tous les deux.
+          $crtCandidates = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Recurse -Filter vcruntime140.dll |
+            Where-Object { $_.FullName -match '\\MSVC\\[0-9][0-9.]*\\x64\\Microsoft\.VC14[0-9]\.CRT\\' }
+          if (-not $crtCandidates) {
+            # Repli : n'importe quel x64, sauf les deux variantes ci-dessus.
+            $crtCandidates = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Recurse -Filter vcruntime140.dll |
+              Where-Object { $_.FullName -match '\\x64\\' -and $_.FullName -notmatch '\\(onecore|spectre)\\' }
+          }
+          $crtDll = $crtCandidates |
+            Sort-Object { [version](($_.VersionInfo.FileVersion -split ' ')[0]) } -Descending |
+            Select-Object -First 1
           if (-not $crtDll) { throw "CRT x64 introuvable dans le redistribuable Visual Studio" }
           Copy-Item (Join-Path $crtDll.Directory.FullName "*.dll") dist\
           if (-not (Test-Path dist\vcruntime140.dll)) { throw "CRT MSVC absent de dist" }
+          $crtVersion = [version]((Get-Item dist\vcruntime140.dll).VersionInfo.FileVersion -split ' ')[0]
+          if ($crtVersion -lt [version]'14.30') {
+            throw "CRT trop ancien dans dist : $crtVersion (VS2019 = 14.29, VS2022 = 14.30+)"
+          }
           choco install nsis -y --no-progress
           $version = "$env:GITHUB_REF_NAME" -replace '^v',''
           & "C:\Program Files (x86)\NSIS\makensis.exe" "-DVERSION=$version" "-DDIST=$PWD\dist" "-DOUTDIR=$PWD" packaging\windows\installer.nsi
